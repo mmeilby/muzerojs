@@ -27,7 +27,7 @@ async function run (): Promise<void> {
     selfPlaySteps: 1000,
     actionSpaceSize: config.actionSpaceSize,
     maxMoves: config.actionSpaceSize,
-    simulations: 100
+    simulations: 500
   }, factory, model)
   const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>({
     trainingSteps: 5000,

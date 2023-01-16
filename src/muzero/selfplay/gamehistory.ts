@@ -63,8 +63,8 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   }
 
   public apply (action: Action): State {
+    this.observationHistory.push(this.model.observation(this._state))
     const state = this.environment.step(this._state, action)
-    this.observationHistory.push(this.model.observation(state))
     this.rewards.push(this.environment.reward(state, state.player))
     this.actionHistory.push(action)
     this.toPlayHistory.push(state.player)
@@ -97,18 +97,21 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     // Convert to positive index
     const index = stateIndex % this.observationHistory.length
     const targets = []
-    for (let currentIndex = index; currentIndex < index + numUnrollSteps + 1; currentIndex++) {
-      const value = this.computeTargetValue(currentIndex, tdSteps)
-      /*
-      // For simplicity the network always predicts the most recently received
-      // reward, even for the initial representation network where we already
-      // know this reward.
-      const lastReward = currentIndex > 0 && currentIndex <= this.rewards.length ? this.rewards[currentIndex - 1] : 0
-*/
+    if (index < this.rootValues.length) {
+      targets.push({
+        value: this.computeTargetValue(index, tdSteps),
+        reward: 0,
+        policy: this.childVisits[index]
+      })
+    } else {
+      // States past the end of games are treated as absorbing states.
+      targets.push({ value: 0, reward: 0, policy: [] })
+    }
+    for (let currentIndex = index + 1; currentIndex < index + numUnrollSteps + 2; currentIndex++) {
       if (currentIndex < this.rootValues.length) {
         targets.push({
-          value,
-          reward: this.rewards[currentIndex],
+          value: this.computeTargetValue(currentIndex, tdSteps),
+          reward: this.rewards[currentIndex - 1],
           policy: this.childVisits[currentIndex]
         })
       } else {

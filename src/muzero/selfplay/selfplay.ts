@@ -83,25 +83,20 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private playGame (network: BaseMuZeroNet): MuZeroGameHistory<State, Action> {
     const dataStore = new TranspositionTable<State>(new Map())
     const gameHistory = new MuZeroGameHistory(this.env, this.model, this.config.discount ?? 1.0)
+    // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-      // At the root of the search tree we use the representation function to
-      // obtain a hidden state given the current observation.
-      const rootNode = this.createRootNode(gameHistory.state, dataStore)
-      const currentObservation = gameHistory.makeImage(-1)
-      const networkOutput = network.initialInference(currentObservation)
-      this.expandNode(rootNode, networkOutput, dataStore)
-      // We also need to add exploration noise to the root node actions.
-      // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
-      // rather than only exploring the action which it currently believes to be optimal.
-      this.addExplorationNoise(rootNode)
-      // We then run a Monte Carlo Tree Search using only action sequences and the
-      // model learned by the network.
-      this.runMCTS(rootNode, network, dataStore)
+      const rootNode = this.runMCTS(gameHistory, network, dataStore)
       const action = this.selectAction(rootNode, gameHistory.historyLength())
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
       debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
     }
+    // Since policy and value data are referring to the state before action is committed
+    // we need a last set of data for the game history
+    const rootNode = this.runMCTS(gameHistory, network, dataStore)
+    gameHistory.storeSearchStatistics(rootNode)
+    debug(`--- STAT: actions=${gameHistory.actionHistory.length} values=${gameHistory.rootValues.length} rewards=${gameHistory.rewards.length}`)
+    debug(`--- REWARD: ${gameHistory.rewards.toString()}`)
     return gameHistory
   }
 
@@ -111,28 +106,46 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * the search tree and traversing the tree according to the UCB formula until we
    * reach a leaf node.
    * @param rootNode
+   * @param gameHistory
    * @param network
    * @param dataStore
    * @private
    */
-  private runMCTS (rootNode: MCTSNode<State, Action>, network: BaseMuZeroNet, dataStore: DataGateway<State>): void {
+  private runMCTS (gameHistory: MuZeroGameHistory<State, Action>, network: BaseMuZeroNet, dataStore: DataGateway<State>): MCTSNode<State, Action> {
     const minMaxStats = new Normalizer()
-    for (let sim = 0; sim < this.config.simulations; sim++) {
-      let node = rootNode
-      while (node.isExpanded() && node.children.length > 0) {
-        node = this.selectChild(node, minMaxStats)
-      }
-      // Inside the search tree we use the dynamics function to obtain the next
-      // hidden state given an action and the previous hidden state.
-      if (node.parent !== undefined && node.action !== undefined) {
-        const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, network.policyTransform(node.action.id))
-        this.expandNode(node, networkOutput, dataStore)
-        this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
-      } else {
-        debug('--- Recurrent inference attempted on a root node')
-        throw new Error('Recurrent inference attempted on a root node')
+    const rootNode: MCTSNode<State, Action> = this.createRootNode(gameHistory.state, dataStore)
+    // At the root of the search tree we use the representation function to
+    // obtain a hidden state given the current observation.
+    const currentObservation = gameHistory.makeImage(-1)
+    const networkOutput = network.initialInference(currentObservation)
+    this.expandNode(rootNode, networkOutput, dataStore)
+    // We also need  to add exploration noise to the root node actions.
+    // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
+    // rather than only exploring the action which it currently believes to be optimal.
+    this.addExplorationNoise(rootNode)
+    // We then run a Monte Carlo Tree Search using only action sequences and the
+    // model learned by the network.
+    if (rootNode.children.length > 0) {
+      // If we can make an action for the root node let us descend the tree
+      for (let sim = 0; sim < this.config.simulations; sim++) {
+        let node = rootNode
+        while (node.isExpanded() && node.children.length > 0) {
+          node = this.selectChild(node, minMaxStats)
+        }
+        // Inside the search tree we use the dynamics function to obtain the next
+        // hidden state given an action and the previous hidden state.
+        if (node.parent !== undefined && node.action !== undefined) {
+          const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, network.policyTransform(node.action.id))
+          this.expandNode(node, networkOutput, dataStore)
+          this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
+        } else {
+          debug('Recurrent inference attempted on a root node')
+          debug(`Node: ${JSON.stringify(node)}`)
+          throw new Error(`Recurrent inference attempted on a root node. Root node was not fully expanded.`)
+        }
       }
     }
+    return rootNode
   }
 
   private createRootNode (state: State, dataStore: DataGateway<State>): MCTSNode<State, Action> {

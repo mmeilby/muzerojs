@@ -57,6 +57,8 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     const pinsLeft = state.board.reduce((s, p) => s + p, 0)
     if (pinsLeft === 0) {
       return config.misereGame ? ply : -ply
+    } else if (pinsLeft === 1) {
+      return config.misereGame ? -ply : ply
     } else {
       return 0
     }

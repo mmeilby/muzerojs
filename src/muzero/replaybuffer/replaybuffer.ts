@@ -3,13 +3,15 @@ import { Actionwise, Playerwise } from '../selfplay/entities'
 import { MuZeroBatch } from './batch'
 import { MuZeroGameSample } from './gamesample'
 import { MuZeroPositionSample } from './positionsample'
+import path from 'path';
+import fs from 'fs';
 
 /**
  * Replay Buffer
  */
 
 export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionwise> {
-  private readonly buffer: Array<MuZeroGameHistory<State, Action>>
+  private buffer: Array<MuZeroGameHistory<State, Action>>
 
   public numPlayedGames: number
   public numPlayedSteps: number
@@ -49,6 +51,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     this.numPlayedGames = 0
     this.numPlayedSteps = 0
     this.totalSamples = 0
+    this.loadSavedGames();
   }
 
   /**
@@ -128,7 +131,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       let threshold = Math.random() * total
       // Now we just need to loop through the replay buffer one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data set since there will be no need
+      // particular threshold. Stop before last data.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; gameIndex < gameProbs.length - 1; ++gameIndex) {
         // Add the weight to our running total.
@@ -162,9 +165,9 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       // Total in hand, we can now pick a random value akin to our
       // random index from before.
       let threshold = Math.random() * total
-      // Now we just need to loop through the main data one more time
+      // Now we just need to loop through the main data.copy(1) one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data set since there will be no need
+      // particular threshold. Stop before last data.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; positionIndex < gameHistory.priorities.length - 1; ++positionIndex) {
         // Reduce our running total with the priority
@@ -180,5 +183,19 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       positionIndex = Math.floor(Math.random() * gameHistory.rootValues.length)
     }
     return new MuZeroPositionSample(positionIndex, positionProb)
+  }
+
+  public loadSavedGames() {
+    const json = fs.readFileSync('./data/games', {encoding: 'utf8'})
+    if (json !== null) {
+      this.buffer = JSON.parse(json)
+      this.totalSamples = this.buffer.reduce((sum,game) => sum+game.rootValues.length, 0)
+      this.numPlayedGames = this.buffer.length
+      this.numPlayedSteps = this.totalSamples
+    }
+  }
+
+  public storeSavedGames() {
+    fs.writeFileSync('./data/games', JSON.stringify(this.buffer), 'utf8')
   }
 }

@@ -28,6 +28,6 @@ export class MuZeroNimState implements Playerwise {
   }
 
   public toString (): string {
-    return `${this._key} | ${this._history.length > 0 ? this._history.map(a => `${Math.floor(a.id / config.heapSize) + 1}->${a.id % config.heapSize + 1}`).join(':') : '*'}`
+    return `${this._key} | ${this._history.length > 0 ? this._history.map(a => `${Math.floor(a.id / config.heapSize) + 1}->${a.id % config.heapSize + 1}`).join(':') : '*'} | ${this._board.join('-')}`
   }
 }

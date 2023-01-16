@@ -4,7 +4,7 @@ import { NetworkOutput } from './networkoutput'
 import { TrainedNetworkOutput } from './trainednetworkoutput'
 
 export abstract class BaseMuZeroNet {
-  private readonly zeroReward: tf.Tensor
+//  private readonly zeroReward: tf.Tensor
 
   // Length of the state tensors
   protected readonly hxSize: number
@@ -22,8 +22,11 @@ export abstract class BaseMuZeroNet {
 
   private readonly logDir: string
 
+  // Representation network: h(obs)->state
   protected abstract h (observationInput: tf.SymbolicTensor): tf.SymbolicTensor
+  // Prediction network: f(state)->policy,value
   protected abstract f (stateInput: tf.SymbolicTensor): { v: tf.SymbolicTensor, p: tf.SymbolicTensor }
+  // Dynamics network: g(state,action)->state,reward
   protected abstract g (actionPlaneInput: tf.SymbolicTensor): { s: tf.SymbolicTensor, r: tf.SymbolicTensor }
 
   constructor (
@@ -37,7 +40,7 @@ export abstract class BaseMuZeroNet {
     this.valueScale = 0.25
 
     this.actionSpaceN = actionSpace
-    this.zeroReward = tf.oneHot([this.rewardSupportSize], this.rewardSupportSize * 2 + 1)
+//    this.zeroReward = tf.oneHot([this.rewardSupportSize], this.rewardSupportSize * 2 + 1)
 
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -75,9 +78,10 @@ export abstract class BaseMuZeroNet {
   }
 
   /**
-     * initialInference
-     * @param obs
-     */
+   * initialInference
+   * Execute h(o)->s f(s)->p,v
+   * @param obs
+   */
   public initialInference (obs: tf.Tensor): NetworkOutput {
     const result = this.forwardModel.predict(obs.reshape([1, -1])) as tf.Tensor[]
     const tfValue = result[2]
@@ -91,10 +95,11 @@ export abstract class BaseMuZeroNet {
   }
 
   /**
-     * recurrentInference
-     * @param hiddenState
-     * @param action
-     */
+   * recurrentInference
+   * Execute g(s,a)->s,r f(s)->p,v
+   * @param hiddenState
+   * @param action
+   */
   public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): NetworkOutput {
     const x = tf.concat([hiddenState, action], 1)
     const result = this.recurrentModel.predict(x) as tf.Tensor[]
@@ -119,8 +124,7 @@ export abstract class BaseMuZeroNet {
     const policyGradients = tf.variableGrads(() => {
       const result = this.forwardModel.predict(obs.reshape([1, -1])) as tf.Tensor[]
       state = tf.keep(result[0])
-      return tf.losses.softmaxCrossEntropy(this.policyPredict(targetPolicy), result[1]).asScalar().add(
-        tf.losses.sigmoidCrossEntropy(this.valueTransform(targetValue), result[2]).asScalar().mul(this.valueScale))
+      return this.lossPolicy(targetPolicy, result[1]).add(this.lossValue(targetValue, result[2]))
     })
     return {
       grads: policyGradients.grads,
@@ -144,9 +148,7 @@ export abstract class BaseMuZeroNet {
     const policyGradients = tf.variableGrads(() => {
       const result = this.recurrentModel.predict(x) as tf.Tensor[]
       state = tf.keep(result[0])
-      return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result[1]).asScalar().add(
-        tf.losses.softmaxCrossEntropy(this.policyPredict(targetPolicy), result[2]).asScalar().add(
-          tf.losses.sigmoidCrossEntropy(this.valueTransform(targetValue), result[3]).asScalar().mul(this.valueScale))).mul(lossScale)
+      return this.lossReward(targetReward, result[1]).add(this.lossPolicy(targetPolicy, result[2])).add(this.lossValue(targetValue, result[3])).mul(lossScale)
     })
     return {
       grads: policyGradients.grads,
@@ -155,6 +157,17 @@ export abstract class BaseMuZeroNet {
     }
   }
 
+  public lossReward(targetReward: number, result: tf.Tensor): tf.Scalar {
+    return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result).asScalar()
+  }
+
+  public lossValue(targetValue: number, result: tf.Tensor): tf.Scalar  {
+    return tf.losses.sigmoidCrossEntropy(this.valueTransform(targetValue), result).asScalar().mul(this.valueScale)
+  }
+
+  public lossPolicy(targetPolicy: number[], result: tf.Tensor): tf.Scalar {
+    return tf.losses.softmaxCrossEntropy(this.policyPredict(targetPolicy), result).asScalar()
+  }
   public inversePolicyTransform (x: tf.Tensor): number[] {
     return tf.softmax(x).squeeze().arraySync() as number[]
   }
