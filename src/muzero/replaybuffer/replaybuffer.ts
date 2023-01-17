@@ -3,8 +3,11 @@ import { Actionwise, Playerwise } from '../selfplay/entities'
 import { MuZeroBatch } from './batch'
 import { MuZeroGameSample } from './gamesample'
 import { MuZeroPositionSample } from './positionsample'
-import path from 'path';
-import fs from 'fs';
+import fs from 'fs'
+import debugFactory from 'debug'
+import { MuZeroEnvironment } from '../games/core/environment'
+import { MuZeroModel } from '../games/core/model'
+const debug = debugFactory('muzero:replaybuffer:module')
 
 /**
  * Replay Buffer
@@ -51,7 +54,6 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     this.numPlayedGames = 0
     this.numPlayedSteps = 0
     this.totalSamples = 0
-    this.loadSavedGames();
   }
 
   /**
@@ -83,6 +85,9 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     this.numPlayedGames++
     this.numPlayedSteps += gameHistory.rootValues.length
     this.totalSamples += gameHistory.rootValues.length
+    if (this.numPlayedGames % 25 === 0) {
+      this.storeSavedGames()
+    }
   }
 
   /**
@@ -185,17 +190,26 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     return new MuZeroPositionSample(positionIndex, positionProb)
   }
 
-  public loadSavedGames() {
-    const json = fs.readFileSync('./data/games', {encoding: 'utf8'})
-    if (json !== null) {
-      this.buffer = JSON.parse(json)
-      this.totalSamples = this.buffer.reduce((sum,game) => sum+game.rootValues.length, 0)
-      this.numPlayedGames = this.buffer.length
-      this.numPlayedSteps = this.totalSamples
+  public loadSavedGames (
+    environment: MuZeroEnvironment<State, Action>,
+    model: MuZeroModel<State>
+  ): void {
+    try {
+      const json = fs.readFileSync('./data/games', { encoding: 'utf8' })
+      if (json !== null) {
+        const discount = this.config.discount ?? 1.0
+        this.buffer = new MuZeroGameHistory(environment, model, discount).deserialize(environment, model, discount, json)
+        this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
+        this.numPlayedGames = this.buffer.length
+        this.numPlayedSteps = this.totalSamples
+      }
+    } catch (e) {
+      debug(e)
     }
   }
 
-  public storeSavedGames() {
-    fs.writeFileSync('./data/games', JSON.stringify(this.buffer), 'utf8')
+  public storeSavedGames (): void {
+    const stream = JSON.stringify(this.buffer.map(gh => gh.serialize()))
+    fs.writeFileSync('./data/games', stream, 'utf8')
   }
 }

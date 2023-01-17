@@ -5,6 +5,13 @@ import { Actionwise, MCTSNode, Playerwise } from './entities'
 import { MuZeroModel } from '../games/core/model'
 import { MuZeroTarget } from '../replaybuffer/target'
 
+interface MuZeroGameHistoryObject {
+  actionHistory: number[]
+  childVisits: number[][]
+  rootValues: number[]
+  priorities: number[]
+  gamePriority: number
+}
 export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwise> {
   private readonly environment: MuZeroEnvironment<State, Action> // Game specific environment.
   private readonly model: MuZeroModel<State>
@@ -176,5 +183,41 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
 
   public toString (): string {
     return this.environment.toString(this._state)
+  }
+
+  public deserialize (
+    environment: MuZeroEnvironment<State, Action>,
+    model: MuZeroModel<State>,
+    discount: number,
+    stream: string
+  ): Array<MuZeroGameHistory<State, Action>> {
+    const games: Array<MuZeroGameHistory<State, Action>> = []
+    const objects: MuZeroGameHistoryObject[] = JSON.parse(stream)
+    objects.forEach(object => {
+      const game = new MuZeroGameHistory(environment, model, discount)
+      object.actionHistory.forEach(oAction => {
+        const action = game.legalActions().find(a => a.id === oAction)
+        if (action !== undefined) {
+          game.apply(action)
+        }
+      })
+      object.rootValues.forEach(r => game.rootValues.push(r))
+      object.childVisits.forEach(cv => game.childVisits.push([...cv]))
+      object.priorities.forEach(p => game.priorities.push(p))
+      game.gamePriority = object.gamePriority
+      games.push(game)
+    })
+    return games
+  }
+
+  public serialize (): MuZeroGameHistoryObject {
+    const object: MuZeroGameHistoryObject = {
+      actionHistory: this.actionHistory.map(a => a.id),
+      rootValues: this.rootValues,
+      childVisits: this.childVisits,
+      priorities: this.priorities,
+      gamePriority: this.gamePriority
+    }
+    return object
   }
 }

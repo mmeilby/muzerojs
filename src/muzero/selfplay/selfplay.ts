@@ -141,7 +141,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
         } else {
           debug('Recurrent inference attempted on a root node')
           debug(`Node: ${JSON.stringify(node)}`)
-          throw new Error(`Recurrent inference attempted on a root node. Root node was not fully expanded.`)
+          throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
         }
       }
     }

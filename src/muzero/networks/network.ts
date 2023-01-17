@@ -40,7 +40,7 @@ export abstract class BaseMuZeroNet {
     this.valueScale = 0.25
 
     this.actionSpaceN = actionSpace
-//    this.zeroReward = tf.oneHot([this.rewardSupportSize], this.rewardSupportSize * 2 + 1)
+    //    this.zeroReward = tf.oneHot([this.rewardSupportSize], this.rewardSupportSize * 2 + 1)
 
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -157,17 +157,18 @@ export abstract class BaseMuZeroNet {
     }
   }
 
-  public lossReward(targetReward: number, result: tf.Tensor): tf.Scalar {
+  public lossReward (targetReward: number, result: tf.Tensor): tf.Scalar {
     return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result).asScalar()
   }
 
-  public lossValue(targetValue: number, result: tf.Tensor): tf.Scalar  {
+  public lossValue (targetValue: number, result: tf.Tensor): tf.Scalar {
     return tf.losses.sigmoidCrossEntropy(this.valueTransform(targetValue), result).asScalar().mul(this.valueScale)
   }
 
-  public lossPolicy(targetPolicy: number[], result: tf.Tensor): tf.Scalar {
+  public lossPolicy (targetPolicy: number[], result: tf.Tensor): tf.Scalar {
     return tf.losses.softmaxCrossEntropy(this.policyPredict(targetPolicy), result).asScalar()
   }
+
   public inversePolicyTransform (x: tf.Tensor): number[] {
     return tf.softmax(x).squeeze().arraySync() as number[]
   }

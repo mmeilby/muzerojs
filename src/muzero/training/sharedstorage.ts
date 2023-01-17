@@ -43,6 +43,7 @@ export class MuZeroSharedStorage {
       } catch (e) {
         debug(e)
       }
+      this.networks.set(0, network)
       return network
     }
   }

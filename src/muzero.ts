@@ -19,6 +19,7 @@ async function run (): Promise<void> {
     actionSpace: config.actionSpaceSize,
     tdSteps: config.actionSpaceSize
   })
+  replayBuffer.loadSavedGames(factory, model)
   const sharedStorage = new MuZeroSharedStorage({
     observationSize: model.observationSize,
     actionSpaceSize: config.actionSpaceSize

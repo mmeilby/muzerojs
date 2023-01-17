@@ -58,20 +58,19 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
   }
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    const network = await storage.latestNetwork()
+    const network = await storage. latestNetwork()
     debug('Training initiated')
     debug('Training steps: %d', this.trainingSteps)
     let learningRate = this.lrInit
-    for (let step = 0; step < this.trainingSteps; step++) {
+    for (let step = 1; step <= this.trainingSteps; step++) {
       if (step % this.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
       tf.tidy(() => {
         const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps)
         if (batchSamples.length > 0) {
-          const lossFunc = () => this.calcLoss(network, batchSamples)
+          const lossFunc = (): tf.Scalar => this.calcLoss(network, batchSamples)
           const optimizer = tf.train.momentum(learningRate, this.momentum)
-//          const optimizerSGD = tf.train.sgd(learningRate)
           const cost = optimizer.minimize(lossFunc, true)
           if (cost !== null) {
             debug(`Cost: ${cost.bufferSync().get(0).toFixed(3)}`)
@@ -94,7 +93,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
         const networkOutputInitial = network.initialInference(batch.image)
         loss.push(
           network.lossPolicy(target.policy, networkOutputInitial.policy).add(
-          network.lossValue(target.value, networkOutputInitial.value))
+            network.lossValue(target.value, networkOutputInitial.value))
         )
         let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
         batch.actions.forEach((action, i) => {
@@ -103,8 +102,8 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
             const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
             loss.push(
               network.lossReward(target.reward, networkOutput.reward).add(
-              network.lossPolicy(target.policy, networkOutput.policy)).add(
-              network.lossValue(target.value, networkOutput.value))
+                network.lossPolicy(target.policy, networkOutput.policy)).add(
+                network.lossValue(target.value, networkOutput.value))
             )
             hiddenState = networkOutput.hiddenState
           } else {
@@ -117,7 +116,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
   }
 
   private updateWeights (network: BaseMuZeroNet, batchSamples: Array<MuZeroBatch<Action>>, learningRate: number): void {
-    const optimizer = tf.train.momentum(learningRate, this.momentum)
+    //    const optimizer = tf.train.momentum(learningRate, this.momentum)
     const optimizerSGD = tf.train.sgd(learningRate)
     const loss: tf.Scalar[] = []
     const lossInitialInference: tf.Scalar[] = []
@@ -137,10 +136,10 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
           const target = batch.targets[i + 1]
           if (target.policy.length > 1) {
             const gradients = network.trainRecurrentInference(
-                hiddenState,
-                network.policyTransform(action.id),
-                target.policy, target.value, target.reward,
-                lossScale)
+              hiddenState,
+              network.policyTransform(action.id),
+              target.policy, target.value, target.reward,
+              lossScale)
             this.pushGradients(gameGradients, gradients.grads)
             loss.push(gradients.loss)
             hiddenState = gradients.state
