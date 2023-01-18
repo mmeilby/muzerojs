@@ -168,12 +168,10 @@ export class ConnectFourNetModel implements MuZeroModel<MuZeroConnectFourState> 
     return 42 * 3
   }
 
-  public observation (state: MuZeroConnectFourState): tf.Tensor {
-    const board = tf.tensor2d(state.board)
-    const boardShape = board.shape
-    const boardPlayer1 = tf.ones(boardShape).where(board.equal(tf.fill(boardShape, 1)), tf.zeros(boardShape))
-    const boardPlayer2 = tf.ones(boardShape).where(board.equal(tf.fill(boardShape, -1)), tf.zeros(boardShape))
-    const boardToPlay = tf.fill(boardShape, state.player)
-    return tf.concat([boardPlayer1, boardPlayer2, boardToPlay])
+  public observation (state: MuZeroConnectFourState): number[][] {
+    const boardPlayer1: number[][] = state.board.map(row => row.map(cell => cell === 1 ? 1 : 0))
+    const boardPlayer2: number[][] = state.board.map(row => row.map(cell => cell === -1 ? 1 : 0))
+    const boardToPlay: number[][] = state.board.map(row => row.map(() => state.player))
+    return boardPlayer1.concat(boardPlayer2).concat(boardToPlay)
   }
 }

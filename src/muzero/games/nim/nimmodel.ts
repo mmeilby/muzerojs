@@ -8,7 +8,7 @@ export class NimNetModel implements MuZeroModel<MuZeroNimState> {
     return config.heaps * config.heapSize
   }
 
-  public observation (state: MuZeroNimState): tf.Tensor {
+  public observation (state: MuZeroNimState): number[][] {
     const board: number[][] = []
     for (let i = 0; i < config.heaps; i++) {
       const pins: number[] = new Array<number>(config.heapSize).fill(0)
@@ -17,6 +17,6 @@ export class NimNetModel implements MuZeroModel<MuZeroNimState> {
       }
       board.push(pins)
     }
-    return tf.tensor2d(board)
+    return board
   }
 }

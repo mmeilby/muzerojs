@@ -58,7 +58,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
   }
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    const network = await storage. latestNetwork()
+    const network = await storage.latestNetwork()
     debug('Training initiated')
     debug('Training steps: %d', this.trainingSteps)
     let learningRate = this.lrInit
@@ -68,12 +68,14 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
       }
       tf.tidy(() => {
         const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps)
-        if (batchSamples.length > 0) {
-          const lossFunc = (): tf.Scalar => this.calcLoss(network, batchSamples)
-          const optimizer = tf.train.momentum(learningRate, this.momentum)
-          const cost = optimizer.minimize(lossFunc, true)
-          if (cost !== null) {
-            debug(`Cost: ${cost.bufferSync().get(0).toFixed(3)}`)
+        for (const batch of batchSamples) {
+          if (batch.actions.length > 0) {
+            const lossFunc = (): tf.Scalar => this.calcLoss(network, batch)
+            const optimizer = tf.train.momentum(learningRate, this.momentum)
+            const cost = optimizer.minimize(lossFunc, true)
+            if (cost !== null) {
+              debug(`Cost: ${cost.bufferSync().get(0).toFixed(3)}`)
+            }
           }
         }
         if (step < this.lrDecaySteps) {
@@ -85,33 +87,29 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
     await storage.saveNetwork(this.trainingSteps, network)
   }
 
-  private calcLoss (network: BaseMuZeroNet, batchSamples: Array<MuZeroBatch<Action>>): tf.Scalar {
+  private calcLoss (network: BaseMuZeroNet, batch: MuZeroBatch<Action>): tf.Scalar {
     const loss: tf.Scalar[] = []
-    for (const batch of batchSamples) {
-      if (batch.actions.length > 0) {
-        const target = batch.targets[0]
-        const networkOutputInitial = network.initialInference(batch.image)
+    const target = batch.targets[0]
+    const networkOutputInitial = network.initialInference(batch.image)
+    loss.push(
+      network.lossPolicy(target.policy, networkOutputInitial.policy).add(
+        network.lossValue(target.value, networkOutputInitial.value))
+    )
+    let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
+    batch.actions.forEach((action, i) => {
+      const target = batch.targets[i + 1]
+      if (target.policy.length > 1) {
+        const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
         loss.push(
-          network.lossPolicy(target.policy, networkOutputInitial.policy).add(
-            network.lossValue(target.value, networkOutputInitial.value))
+          network.lossReward(target.reward, networkOutput.reward).add(
+            network.lossPolicy(target.policy, networkOutput.policy)).add(
+            network.lossValue(target.value, networkOutput.value))
         )
-        let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
-        batch.actions.forEach((action, i) => {
-          const target = batch.targets[i + 1]
-          if (target.policy.length > 1) {
-            const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
-            loss.push(
-              network.lossReward(target.reward, networkOutput.reward).add(
-                network.lossPolicy(target.policy, networkOutput.policy)).add(
-                network.lossValue(target.value, networkOutput.value))
-            )
-            hiddenState = networkOutput.hiddenState
-          } else {
-            debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
-          }
-        })
+        hiddenState = networkOutput.hiddenState
+      } else {
+        debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
       }
-    }
+    })
     return loss.reduce((sum, l) => sum.add(l), tf.scalar(0))
   }
 

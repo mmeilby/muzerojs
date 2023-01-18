@@ -17,7 +17,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   private readonly model: MuZeroModel<State>
   private _state: State
   // A list of observation input tensors for the representation network at each turn of the game
-  private readonly observationHistory: Tensor[]
+  private readonly observationHistory: number[][][]
   // A list of actions taken at each turn of the game
   public readonly actionHistory: Action[]
   // A list of true rewards received at each turn of the game
@@ -88,7 +88,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     // Game specific feature planes.
     // Convert to positive index
     const index = stateIndex % this.observationHistory.length
-    return this.observationHistory[index] ?? this.model.observation(this._state)
+    return tf.tensor2d(this.observationHistory[index] ?? this.model.observation(this._state))
   }
 
   /**
@@ -166,12 +166,12 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
 
     // Convert to positive index
     const index = position % this.observationHistory.length
-    const stackedObservations: Tensor[] = [this.observationHistory[index]]
+    const stackedObservations: Tensor[] = [tf.tensor2d(this.observationHistory[index])]
     const tensorDim = stackedObservations[0].shape
     const actionsDim = stackedObservations[0].gather(0).shape
     for (let pastObservationIndex = index - 1; pastObservationIndex >= index - numStackedObservations; pastObservationIndex--) {
       if (pastObservationIndex >= 0) {
-        stackedObservations.push(this.observationHistory[pastObservationIndex])
+        stackedObservations.push(tf.tensor2d(this.observationHistory[pastObservationIndex]))
         stackedObservations.push(tf.fill(actionsDim, this.actionHistory[pastObservationIndex + 1].id))
       } else {
         stackedObservations.push(tf.zeros(tensorDim))
@@ -211,13 +211,12 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   }
 
   public serialize (): MuZeroGameHistoryObject {
-    const object: MuZeroGameHistoryObject = {
+    return {
       actionHistory: this.actionHistory.map(a => a.id),
       rootValues: this.rootValues,
       childVisits: this.childVisits,
       priorities: this.priorities,
       gamePriority: this.gamePriority
     }
-    return object
   }
 }

@@ -17,7 +17,7 @@ describe('Muzero Self Play Unit Test:', () => {
     expect(state.board.toString()).toEqual('1,2,3')
     expect(factory.toString(state)).toEqual('1|2|3')
     expect(factory.legalActions(state).map(a => a.id).toString()).toEqual('0,3,4,6,7,8')
-    const a = await model.observation(state).array()
+    const a = model.observation(state)
     expect(a.toString()).toEqual('1,0,0,1,1,0,1,1,1')
     const s1 = factory.step(state, new MuZeroAction(0))
     expect(s1.board.toString()).toEqual('0,2,3')

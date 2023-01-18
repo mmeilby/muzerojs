@@ -1,7 +1,6 @@
-import * as tf from '@tensorflow/tfjs-node'
 import { Playerwise } from '../../selfplay/entities'
 
-export type GetObservation<State extends Playerwise> = (state: State) => tf.Tensor
+export type GetObservation<State extends Playerwise> = (state: State) => number[][]
 
 export interface MuZeroModel<State extends Playerwise> {
   observationSize: number
