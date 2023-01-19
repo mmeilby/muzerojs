@@ -2,7 +2,7 @@
   "name": "muzerojs",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/muzero.js",
   "scripts": {
     "build": "tsc",
     "clean": "tsc --build --clean",
@@ -13,7 +13,7 @@
     "pretest": "npm run clean && npm run build",
     "posttest": "npm run lint:fix",
     "prestart": "npm run build",
-    "start": "node -r source-map-support/register ./dist/__muzero__/testtrain.unit.js",
+    "start": "node dist/muzero.js",
     "prepublishOnly": "npm run test",
     "test": "jest"
   },

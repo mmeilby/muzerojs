@@ -28,13 +28,13 @@ async function run (): Promise<void> {
     selfPlaySteps: 1000,
     actionSpaceSize: config.actionSpaceSize,
     maxMoves: config.actionSpaceSize,
-    simulations: 500
+    simulations: 100
   }, factory, model)
   const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>({
     trainingSteps: 5000,
     checkpointInterval: 25,
     tdSteps: config.actionSpaceSize,
-    learningRate: 0.05
+    learningRate: 0.01
   })
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),
@@ -42,4 +42,4 @@ async function run (): Promise<void> {
   ])
 }
 
-run().then(res => {}).catch(err => console.error(err))
+run().then(() => {}).catch(err => console.error(err))

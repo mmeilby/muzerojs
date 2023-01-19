@@ -1,7 +1,6 @@
 import { MuZeroModel } from '../core/model'
 import { MuZeroNimState } from './nimstate'
 import { config } from './nimconfig'
-import * as tf from '@tensorflow/tfjs-node'
 
 export class NimNetModel implements MuZeroModel<MuZeroNimState> {
   get observationSize (): number {
