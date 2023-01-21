@@ -6,9 +6,10 @@ import { MuZeroNim } from './muzero/games/nim/nim'
 import { MuZeroNimState } from './muzero/games/nim/nimstate'
 import { NimNetModel } from './muzero/games/nim/nimmodel'
 import { MuZeroTraining } from './muzero/training/training'
-// import debugFactory from 'debug'
+import * as tf from "@tensorflow/tfjs-node";
+import debugFactory from 'debug'
 
-// const debug = debugFactory('muzero:selfplay:unittest ')
+const debug = debugFactory('muzero:muzero:debug')
 
 async function run (): Promise<void> {
   const factory = new MuZeroNim()
@@ -24,6 +25,7 @@ async function run (): Promise<void> {
     observationSize: model.observationSize,
     actionSpaceSize: config.actionSpaceSize
   })
+  await sharedStorage.loadNetwork()
   const selfPlay = new MuZeroSelfPlay({
     selfPlaySteps: 1000,
     actionSpaceSize: config.actionSpaceSize,
@@ -36,6 +38,7 @@ async function run (): Promise<void> {
     tdSteps: config.actionSpaceSize,
     learningRate: 0.01
   })
+  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),
     train.trainNetwork(sharedStorage, replayBuffer)

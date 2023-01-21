@@ -62,7 +62,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   public async runSelfPlay (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
     debug(`Self play initiated - running ${this.config.selfPlaySteps} steps`)
     for (let sim = 0; sim < this.config.selfPlaySteps; sim++) {
-      const network = await storage.latestNetwork()
+      const network = storage.latestNetwork()
       const game = this.playGame(network)
       replayBuffer.saveGame(game)
       debug(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
@@ -82,7 +82,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    */
   private playGame (network: BaseMuZeroNet): MuZeroGameHistory<State, Action> {
     const dataStore = new TranspositionTable<State>(new Map())
-    const gameHistory = new MuZeroGameHistory(this.env, this.model, this.config.discount ?? 1.0)
+    const gameHistory = new MuZeroGameHistory(this.env, this.model)
     // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network, dataStore)
@@ -114,11 +114,14 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private runMCTS (gameHistory: MuZeroGameHistory<State, Action>, network: BaseMuZeroNet, dataStore: DataGateway<State>): MCTSNode<State, Action> {
     const minMaxStats = new Normalizer()
     const rootNode: MCTSNode<State, Action> = this.createRootNode(gameHistory.state, dataStore)
-    // At the root of the search tree we use the representation function to
-    // obtain a hidden state given the current observation.
-    const currentObservation = gameHistory.makeImage(-1)
-    const networkOutput = network.initialInference(currentObservation)
-    this.expandNode(rootNode, networkOutput, dataStore)
+    tf.tidy(() => {
+      // At the root of the search tree we use the representation function to
+      // obtain a hidden state given the current observation.
+      const currentObservation = gameHistory.makeImage(-1)
+      const networkOutput = network.initialInference(tf.tensor2d(currentObservation))
+//      debug(`Network output: ${JSON.stringify(networkOutput)}`)
+      this.expandNode(rootNode, networkOutput, dataStore)
+    })
     // We also need  to add exploration noise to the root node actions.
     // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
     // rather than only exploring the action which it currently believes to be optimal.
@@ -132,17 +135,21 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
         while (node.isExpanded() && node.children.length > 0) {
           node = this.selectChild(node, minMaxStats)
         }
-        // Inside the search tree we use the dynamics function to obtain the next
-        // hidden state given an action and the previous hidden state.
-        if (node.parent !== undefined && node.action !== undefined) {
-          const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, network.policyTransform(node.action.id))
-          this.expandNode(node, networkOutput, dataStore)
-          this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
-        } else {
-          debug('Recurrent inference attempted on a root node')
-          debug(`Node: ${JSON.stringify(node)}`)
-          throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
-        }
+        tf.tidy(() => {
+          // Inside the search tree we use the dynamics function to obtain the next
+          // hidden state given an action and the previous hidden state.
+          if (node.parent !== undefined && node.action !== undefined) {
+//            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
+            const hiddenState = tf.tensor2d([node.parent.mctsState.hiddenState])
+            const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(node.action.id))
+            this.expandNode(node, networkOutput, dataStore)
+            this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
+          } else {
+            debug('Recurrent inference attempted on a root node')
+            debug(`Node: ${JSON.stringify(node)}`)
+            throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
+          }
+        })
       }
     }
     return rootNode
@@ -164,15 +171,17 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     const visitsTable = rootNode.children.map(child => {
       return { action: child.action, visits: child.mctsState.visits }
     })
+    let action = 0
     if (visitsTable.length > 1) {
       // define the probability for each action based on popularity (visits)
-      const probs = tf.softmax(tf.tensor1d(visitsTable.map(r => r.visits)))
-      // select the most popular action
-      const draw = tf.multinomial(probs, 1, undefined, false) as tf.Tensor1D
-      return visitsTable[draw.bufferSync().get(0)].action as Action
-    } else {
-      return visitsTable[0].action as Action
+      tf.tidy(() => {
+        const probs = tf.softmax(tf.tensor1d(visitsTable.map(r => r.visits)))
+        // select the most popular action
+        const draw = tf.multinomial(probs, 1, undefined, false) as tf.Tensor1D
+        action = draw.bufferSync().get(0)
+      })
     }
+    return visitsTable[action].action as Action
   }
 
   /**
@@ -224,7 +233,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    */
   private expandNode (node: MCTSNode<State, Action>, networkOutput: NetworkOutput, dataStore: DataGateway<State>): void {
     // save network predicted hidden state
-    node.mctsState.hiddenState = networkOutput.hiddenState
+    node.mctsState.hiddenState = networkOutput.aHiddenState
     // save network predicted reward
     node.mctsState.reward = networkOutput.nReward
     // save network predicted value

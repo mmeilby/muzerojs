@@ -8,8 +8,18 @@ export class NetworkOutput {
   policy: tf.Tensor // policy logits
   policyMap: number[]
   hiddenState: tf.Tensor
+  aHiddenState: number[]
 
-  constructor (value: tf.Tensor, nValue: number, reward: tf.Tensor, nReward: number, policy: tf.Tensor, policyMap: number[], hiddenState: tf.Tensor) {
+  constructor (
+    value: tf.Tensor,
+    nValue: number,
+    reward: tf.Tensor,
+    nReward: number,
+    policy: tf.Tensor,
+    policyMap: number[],
+    hiddenState: tf.Tensor,
+    aHiddenState: number[]
+  ) {
     this.value = value
     this.nValue = nValue
     this.reward = reward
@@ -17,5 +27,6 @@ export class NetworkOutput {
     this.policy = policy
     this.policyMap = policyMap
     this.hiddenState = hiddenState
+    this.aHiddenState = aHiddenState
   }
 }

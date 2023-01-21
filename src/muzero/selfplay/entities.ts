@@ -1,5 +1,3 @@
-import * as tf from '@tensorflow/tfjs-node'
-
 /**
  * `Playerwise` is an interface made to extend generic `State` objects used in
  * the [[GameRules]] interface. It is meant to insure that, even though the shape
@@ -197,7 +195,7 @@ export class MCTSState<State> {
   // The backfilled value sum of the node
   private valueSum_: number
   // The hidden state this node corresponds to
-  private hiddenState_?: tf.Tensor
+  private hiddenState_?: number[]
   constructor (private readonly state_: State) {
     this.reward_ = 0
     this.visits_ = 0
@@ -271,14 +269,14 @@ export class MCTSState<State> {
   /**
    * The hidden state this node corresponds to
    */
-  get hiddenState (): tf.Tensor {
+  get hiddenState (): number[] {
     if (this.hiddenState_ != null) {
       return this.hiddenState_
     }
     throw new Error('Hidden state is undefined for MCTSState')
   }
 
-  set hiddenState (value: tf.Tensor) {
+  set hiddenState (value: number[]) {
     this.hiddenState_ = value
   }
 

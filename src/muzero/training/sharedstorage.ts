@@ -1,11 +1,14 @@
 import { MuZeroNet } from '../networks/fullconnected'
-
-import debugFactory from 'debug'
 import { BaseMuZeroNet } from '../networks/network'
+import debugFactory from 'debug'
+import * as tf from "@tensorflow/tfjs-node";
+
 const debug = debugFactory('muzero:sharedstorage:module')
 
 export class MuZeroSharedStorage {
-  private readonly networks: Map<number, BaseMuZeroNet>
+  private readonly latestNetwork_: BaseMuZeroNet
+  private readonly maxNetworks: number
+  public networkCount: number
 
   /**
    *
@@ -19,38 +22,34 @@ export class MuZeroSharedStorage {
       actionSpaceSize: number
     }
   ) {
-    this.networks = new Map<number, BaseMuZeroNet>()
+    this.latestNetwork_ = this.uniformNetwork()
+    this.maxNetworks = 2
+    this.networkCount = 0
   }
 
-  public async latestNetwork (): Promise<BaseMuZeroNet> {
-    if (this.networks.size > 0) {
-      const keys: number[] = []
-      this.networks.forEach((v, k) => keys.push(k))
-      keys.sort((a, b) => b - a)
-      debug('Picked the network with id %d', keys[0])
-      const network = this.networks.get(keys[0])
-      if (network !== undefined) {
-        return network
-      } else {
-        throw new Error(`Unable to get latest network '${keys[0]}'`)
-      }
-    } else {
-      // make uniform network: policy -> uniform, value -> 0, reward -> 0
-      const network = new MuZeroNet(this.config.observationSize, this.config.actionSpaceSize)
-      try {
-        debug('Loading network')
-        await network.load('file://data/muzeronet')
-      } catch (e) {
-        debug(e)
-      }
-      this.networks.set(0, network)
-      return network
+  public uniformNetwork (): BaseMuZeroNet {
+    // make uniform network: policy -> uniform, value -> 0, reward -> 0
+    return new MuZeroNet(this.config.observationSize, this.config.actionSpaceSize)
+  }
+
+  public latestNetwork (): BaseMuZeroNet {
+    debug(`Picked the latest network - training step ${this.networkCount}`)
+    return this.latestNetwork_
+  }
+
+  public async loadNetwork (): Promise<void> {
+    try {
+      debug('Loading network')
+      await this.latestNetwork_.load('file://data/muzeronet')
+    } catch (e) {
+      debug(e)
     }
   }
 
   public async saveNetwork (step: number, network: BaseMuZeroNet): Promise<void> {
     debug('Saving network')
     await network.save('file://data/muzeronet')
-    this.networks.set(step, network)
+    network.copyWeights(this.latestNetwork_)
+    this.networkCount = step
   }
 }

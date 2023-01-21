@@ -2,11 +2,12 @@ import * as tf from '@tensorflow/tfjs-node'
 import { scalarToSupport, supportToScalar } from '../selfplay/utils'
 import { NetworkOutput } from './networkoutput'
 import { TrainedNetworkOutput } from './trainednetworkoutput'
+import debugFactory from 'debug'
+
+const debug = debugFactory('muzero:network:debug')
 
 export abstract class BaseMuZeroNet {
-//  private readonly zeroReward: tf.Tensor
-
-  // Length of the state tensors
+  // Length of the hidden state tensors
   protected readonly hxSize: number
   // Length of the action tensors
   protected readonly actionSpaceN: number
@@ -14,6 +15,9 @@ export abstract class BaseMuZeroNet {
   protected readonly rewardSupportSize: number
   // Length of the value representation tensors (number of bins)
   protected readonly valueSupportSize: number
+  // Size of hidden layer
+  public readonly hiddenLayerSize: number
+
   // Value loss scale
   private readonly valueScale: number
 
@@ -23,7 +27,7 @@ export abstract class BaseMuZeroNet {
   private readonly logDir: string
 
   // Representation network: h(obs)->state
-  protected abstract h (observationInput: tf.SymbolicTensor): tf.SymbolicTensor
+  protected abstract h (observationInput: tf.SymbolicTensor): { s: tf.SymbolicTensor }
   // Prediction network: f(state)->policy,value
   protected abstract f (stateInput: tf.SymbolicTensor): { v: tf.SymbolicTensor, p: tf.SymbolicTensor }
   // Dynamics network: g(state,action)->state,reward
@@ -37,10 +41,10 @@ export abstract class BaseMuZeroNet {
     this.hxSize = 32
     this.rewardSupportSize = 10
     this.valueSupportSize = 10
+    this.hiddenLayerSize = 64
     this.valueScale = 0.25
 
     this.actionSpaceN = actionSpace
-    //    this.zeroReward = tf.oneHot([this.rewardSupportSize], this.rewardSupportSize * 2 + 1)
 
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -48,11 +52,11 @@ export abstract class BaseMuZeroNet {
     // s: batch_size x time x state_x x state_y
     const observationInput = tf.input({ shape: [inputSize], name: 'observation_input' })
     const h = this.h(observationInput)
-    const f1 = this.f(h)
+    const f1 = this.f(h.s)
     const iiModel = tf.model({
       name: 'Initial Inference',
       inputs: observationInput,
-      outputs: [h, f1.p, f1.v]
+      outputs: [h.s, f1.p, f1.v]
     })
     iiModel.compile({
       optimizer: 'sgd',
@@ -91,7 +95,8 @@ export abstract class BaseMuZeroNet {
     const tfPolicy = result[1]
     const policy = this.inversePolicyTransform(result[1])
     const state = result[0]
-    return new NetworkOutput(tfValue, value, tfReward, reward, tfPolicy, policy, state)
+    const hiddenState: number[] = result[0].reshape([-1]).arraySync() as number[]
+    return new NetworkOutput(tfValue, value, tfReward, reward, tfPolicy, policy, state, hiddenState)
   }
 
   /**
@@ -110,7 +115,8 @@ export abstract class BaseMuZeroNet {
     const tfPolicy = result[2]
     const policy = this.inversePolicyTransform(result[2])
     const state = result[0]
-    return new NetworkOutput(tfValue, value, tfReward, reward, tfPolicy, policy, state)
+    const aHiddenState: number[] = result[0].reshape([-1]).arraySync() as number[]
+    return new NetworkOutput(tfValue, value, tfReward, reward, tfPolicy, policy, state, aHiddenState)
   }
 
   /**
@@ -119,18 +125,17 @@ export abstract class BaseMuZeroNet {
      * @param targetPolicy
      * @param targetValue
      */
-  public trainInitialInference (obs: tf.Tensor, targetPolicy: number[], targetValue: number): TrainedNetworkOutput {
+  public async trainInitialInference (obs: tf.Tensor, targetPolicy: number[], targetValue: number): Promise<number | tf.Tensor> {
+    const history = await this.forwardModel.fit(obs.reshape([1, -1]), { value: this.valueTransform(targetValue), policy: this.policyPredict(targetPolicy) })
+    /*
     let state: tf.Tensor = tf.tensor1d(new Array(this.hxSize))
     const policyGradients = tf.variableGrads(() => {
       const result = this.forwardModel.predict(obs.reshape([1, -1])) as tf.Tensor[]
       state = tf.keep(result[0])
       return this.lossPolicy(targetPolicy, result[1]).add(this.lossValue(targetValue, result[2]))
     })
-    return {
-      grads: policyGradients.grads,
-      loss: policyGradients.value,
-      state
-    }
+    */
+    return history.history.loss[0]
   }
 
   /**
@@ -211,12 +216,31 @@ export abstract class BaseMuZeroNet {
   }
 
   public async load (path: string): Promise<void> {
-    const models = await Promise.all([
-      tf.loadLayersModel(path + '_forward/model.json'),
-      tf.loadLayersModel(path + '_recurrent/model.json')
-    ])
-    this.forwardModel = models[0]
-    this.recurrentModel = models[1]
+    try {
+      const models = await Promise.all([
+        tf.loadLayersModel(path + '_forward/model.json'),
+        tf.loadLayersModel(path + '_recurrent/model.json')
+      ])
+      debug(`Disposed ${this.dispose()} tensors`)
+      this.forwardModel = models[0]
+      this.recurrentModel = models[1]
+    } catch (e) {
+      throw e
+    }
+  }
+
+  public copyWeights (network: BaseMuZeroNet): void {
+    tf.tidy(() => {
+      network.forwardModel.setWeights(this.forwardModel.getWeights())
+      network.recurrentModel.setWeights(this.recurrentModel.getWeights())
+    })
+  }
+
+  public dispose (): number {
+    let disposed = 0
+    disposed += this.forwardModel.dispose().numDisposedVariables
+    disposed += this.recurrentModel.dispose().numDisposedVariables
+    return disposed
   }
 
   public trainingSteps (): number {

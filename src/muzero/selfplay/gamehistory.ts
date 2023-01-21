@@ -1,6 +1,4 @@
 import { MuZeroEnvironment } from '../games/core/environment'
-import * as tf from '@tensorflow/tfjs'
-import { Tensor } from '@tensorflow/tfjs'
 import { Actionwise, MCTSNode, Playerwise } from './entities'
 import { MuZeroModel } from '../games/core/model'
 import { MuZeroTarget } from '../replaybuffer/target'
@@ -29,8 +27,6 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   public readonly childVisits: number[][]
   // A list of values of the root node at each turn of the game
   public readonly rootValues: number[]
-  // Chronological discount of the reward
-  private readonly discount: number
   // Root value deviations from true target value - used for priority sorting of saved games
   public priorities: number[]
   // Largest absolute deviation from target value of the priorities list
@@ -38,8 +34,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
 
   constructor (
     environment: MuZeroEnvironment<State, Action>,
-    model: MuZeroModel<State>,
-    discount: number
+    model: MuZeroModel<State>
   ) {
     this.environment = environment
     this.model = model
@@ -50,7 +45,6 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     this.toPlayHistory = []
     this.childVisits = []
     this.rootValues = []
-    this.discount = discount
     this.priorities = []
     this.gamePriority = 0
   }
@@ -84,11 +78,11 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     this.rootValues.push(rootNode.mctsState.value)
   }
 
-  public makeImage (stateIndex: number): Tensor {
+  public makeImage (stateIndex: number): number[][] {
     // Game specific feature planes.
     // Convert to positive index
     const index = stateIndex % this.observationHistory.length
-    return tf.tensor2d(this.observationHistory[index] ?? this.model.observation(this._state))
+    return this.observationHistory[index] ?? this.model.observation(this._state)
   }
 
   /**
@@ -99,30 +93,31 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
    * @param numUnrollSteps Number of consecutive game moves to generate target values for
    * @param tdSteps Number of steps in the future to take into account for calculating
    * the target value
+   * @param discount Chronological discount of the reward
    */
-  public makeTarget (stateIndex: number, numUnrollSteps: number, tdSteps: number): MuZeroTarget[] {
+  public makeTarget (stateIndex: number, numUnrollSteps: number, tdSteps: number, discount: number): MuZeroTarget[] {
     // Convert to positive index
     const index = stateIndex % this.observationHistory.length
     const targets = []
     if (index < this.rootValues.length) {
       targets.push({
-        value: this.computeTargetValue(index, tdSteps),
+        value: this.computeTargetValue(index, tdSteps, discount),
         reward: 0,
         policy: this.childVisits[index]
       })
     } else {
-      // States past the end of games are treated as absorbing states.
+      // States past the end of game are treated as absorbing states.
       targets.push({ value: 0, reward: 0, policy: [] })
     }
     for (let currentIndex = index + 1; currentIndex < index + numUnrollSteps + 2; currentIndex++) {
       if (currentIndex < this.rootValues.length) {
         targets.push({
-          value: this.computeTargetValue(currentIndex, tdSteps),
+          value: this.computeTargetValue(currentIndex, tdSteps, discount),
           reward: this.rewards[currentIndex - 1],
           policy: this.childVisits[currentIndex]
         })
       } else {
-        // States past the end of games are treated as absorbing states.
+        // States past the end of game are treated as absorbing states.
         targets.push({ value: 0, reward: 0, policy: [] })
       }
     }
@@ -134,24 +129,25 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
    * The value target is the discounted root value of the search tree tdSteps into the
    * future, plus the discounted sum of all rewards until then.
    * @param index
-   * @param tdSteps
+   * @param tdSteps Number of steps in the future to take into account for calculating
+   * @param discount Chronological discount of the reward
    * @private
    */
-  public computeTargetValue (index: number, tdSteps: number): number {
+  public computeTargetValue (index: number, tdSteps: number, discount: number): number {
     let value = 0
     // Calculate the discounted root value of the search tree tdSteps into the future
     const bootstrapIndex = index + tdSteps
     if (bootstrapIndex < this.rootValues.length) {
       const samePlayer = this.toPlayHistory[index] === this.toPlayHistory[bootstrapIndex]
       const lastStepValue = samePlayer ? this.rootValues[bootstrapIndex] : -this.rootValues[bootstrapIndex]
-      value = lastStepValue * Math.pow(this.discount, tdSteps)
+      value = lastStepValue * Math.pow(discount, tdSteps)
     }
     // Calculate the discounted sum of all rewards for the tdSteps period
     this.rewards.slice(index, bootstrapIndex + 1).forEach((reward, i) => {
       // The value is oriented from the perspective of the current player
       const samePlayer = this.toPlayHistory[index] === this.toPlayHistory[index + i]
       const r = samePlayer ? reward : -reward
-      value += r * Math.pow(this.discount, i)
+      value += r * Math.pow(discount, i)
     })
     return value
   }
@@ -160,41 +156,15 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     return this.actionHistory.length
   }
 
-  public getStackedObservations (position: number, numStackedObservations: number): Tensor[] {
-    // Generate a new observation with the observation at the index position
-    // and num_stacked_observations past observations and actions stacked.
-
-    // Convert to positive index
-    const index = position % this.observationHistory.length
-    const stackedObservations: Tensor[] = [tf.tensor2d(this.observationHistory[index])]
-    const tensorDim = stackedObservations[0].shape
-    const actionsDim = stackedObservations[0].gather(0).shape
-    for (let pastObservationIndex = index - 1; pastObservationIndex >= index - numStackedObservations; pastObservationIndex--) {
-      if (pastObservationIndex >= 0) {
-        stackedObservations.push(tf.tensor2d(this.observationHistory[pastObservationIndex]))
-        stackedObservations.push(tf.fill(actionsDim, this.actionHistory[pastObservationIndex + 1].id))
-      } else {
-        stackedObservations.push(tf.zeros(tensorDim))
-        stackedObservations.push(tf.zeros(actionsDim))
-      }
-    }
-    return stackedObservations
-  }
-
   public toString (): string {
     return this.environment.toString(this._state)
   }
 
-  public deserialize (
-    environment: MuZeroEnvironment<State, Action>,
-    model: MuZeroModel<State>,
-    discount: number,
-    stream: string
-  ): Array<MuZeroGameHistory<State, Action>> {
+  public deserialize (stream: string): Array<MuZeroGameHistory<State, Action>> {
     const games: Array<MuZeroGameHistory<State, Action>> = []
     const objects: MuZeroGameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
-      const game = new MuZeroGameHistory(environment, model, discount)
+      const game = new MuZeroGameHistory(this.environment, this.model)
       object.actionHistory.forEach(oAction => {
         const action = game.legalActions().find(a => a.id === oAction)
         if (action !== undefined) {

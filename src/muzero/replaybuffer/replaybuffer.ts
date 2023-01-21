@@ -62,12 +62,13 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
    * @param gameHistory
    */
   public saveGame (gameHistory: MuZeroGameHistory<State, Action>): void {
+    const discount = this.config.discount ?? 1.0
     if (this.config.prioritizedReplay ?? false) {
       // Initial priorities for the prioritized replay (See paper appendix Training)
       // For each game position calculate the absolute deviation from target value. Largest deviation has priority
       const priorities: number[] = []
       gameHistory.rootValues.forEach((rootValue, i) => {
-        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps)
+        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps, discount)
         const priority = Math.pow(Math.abs(rootValue - targetValue), this.config.priorityAlpha ?? 1.0)
         priorities.push(priority)
       })
@@ -106,13 +107,14 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       }
     }
     //    debug('Sample %d games', this.batchSize)
+    const discount = this.config.discount ?? 1.0
     return gameSamples.map(g => {
       const gameHistory = g.gameHistory
       //      debug(game.env.toString(game.state))
       //      debug(game.state.toString())
       const i = this.samplePosition(gameHistory, forceUniform).position
       const actionHistory = gameHistory.actionHistory.slice(i, i + numUnrollSteps)
-      const target = gameHistory.makeTarget(i, numUnrollSteps, tdSteps)
+      const target = gameHistory.makeTarget(i, numUnrollSteps, tdSteps, discount)
       return new MuZeroBatch(gameHistory.makeImage(i), actionHistory, target)
     })
   }
@@ -197,8 +199,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     try {
       const json = fs.readFileSync('./data/games', { encoding: 'utf8' })
       if (json !== null) {
-        const discount = this.config.discount ?? 1.0
-        this.buffer = new MuZeroGameHistory(environment, model, discount).deserialize(environment, model, discount, json)
+        this.buffer = new MuZeroGameHistory(environment, model).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
         this.numPlayedGames = this.buffer.length
         this.numPlayedSteps = this.totalSamples
