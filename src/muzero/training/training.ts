@@ -58,42 +58,89 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
   }
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    const network = await storage.latestNetwork()
+    const network = storage.uniformNetwork()
+    storage.latestNetwork().copyWeights(network)
     debug('Training initiated')
-    debug('Training steps: %d', this.trainingSteps)
+    debug(`Training steps: ${this.trainingSteps}`)
+    const useBaseline = tf.memory().numTensors
     let learningRate = this.lrInit
+    const optimizer = tf.train.momentum(learningRate, this.momentum)
     for (let step = 1; step <= this.trainingSteps; step++) {
       if (step % this.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
+      let losses = 0
+      let samples = 0
+      const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps).filter(batch => batch.actions.length > 0)
+      losses += await network.trainInference(batchSamples)
+      samples++
+      /*
+      const recurrentTargets = batchSamples.map(batch => batch.actions.map((action, index) => {
+        const target = batch.targets[index + 1]
+        if (target.policy.length > 1) {
+          return {action, target}
+        } else {
+          throw new Error(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${index}`)
+        }
+      }))
+      for (const batch of batchSamples) {
+        if (batch.actions.length > 0) {
+          const obs = tf.tensor2d(batch.image)
+          const target = batch.targets[0]
+          const networkOutputInitial = network.initialInference(obs)
+          const loss = await network.trainInitialInference(obs, target.policy, target.value)
+          let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
+          for (var i = 0; i < batch.actions.length; i++) {
+            const action = batch.actions[i]
+            const target = batch.targets[i + 1]
+            if (target.policy.length > 1) {
+              const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
+              const lossR = await network.trainRecurrentInference(hiddenState, network.policyTransform(action.id), target.policy, target.value, target.reward, this.valueLossWeight)
+              losses += lossR
+              hiddenState = networkOutput.hiddenState
+            } else {
+              debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
+            }
+          }
+          samples++
+        }
+      }
+      */
+
+      /*
       tf.tidy(() => {
         const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps)
         for (const batch of batchSamples) {
           if (batch.actions.length > 0) {
             const lossFunc = (): tf.Scalar => this.calcLoss(network, batch)
-            const optimizer = tf.train.momentum(learningRate, this.momentum)
+            optimizer.setLearningRate(learningRate)
             const cost = optimizer.minimize(lossFunc, true)
             if (cost !== null) {
-              debug(`Cost: ${cost.bufferSync().get(0).toFixed(3)}`)
+              losses += cost.bufferSync().get(0)
+              samples++
             }
           }
         }
-        if (step < this.lrDecaySteps) {
-          learningRate *= this.lrDecayRate
-        }
       })
+      */
+      if (step < this.lrDecaySteps) {
+        learningRate *= this.lrDecayRate
+      }
+      debug(`Mean cost: ${(samples > 0 ? losses/samples : 0).toFixed(3)}`)
+      debug(`Optimizer tensor usage: ${tf.memory().numTensors - useBaseline}`)
       await tf.nextFrame()
     }
+    optimizer.dispose()
     await storage.saveNetwork(this.trainingSteps, network)
   }
 
   private calcLoss (network: BaseMuZeroNet, batch: MuZeroBatch<Action>): tf.Scalar {
     const loss: tf.Scalar[] = []
     const target = batch.targets[0]
-    const networkOutputInitial = network.initialInference(batch.image)
+    const networkOutputInitial = network.initialInference(tf.tensor2d(batch.image))
     loss.push(
       network.lossPolicy(target.policy, networkOutputInitial.policy).add(
-        network.lossValue(target.value, networkOutputInitial.value))
+      network.lossValue(target.value, networkOutputInitial.value))
     )
     let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
     batch.actions.forEach((action, i) => {
@@ -101,9 +148,9 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
       if (target.policy.length > 1) {
         const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
         loss.push(
-          network.lossReward(target.reward, networkOutput.reward).add(
-            network.lossPolicy(target.policy, networkOutput.policy)).add(
-            network.lossValue(target.value, networkOutput.value))
+            network.lossPolicy(target.policy, networkOutput.policy).add(
+            network.lossValue(target.value, networkOutput.value)).add(
+            network.lossReward(target.reward, networkOutput.reward))
         )
         hiddenState = networkOutput.hiddenState
       } else {
@@ -112,7 +159,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
     })
     return loss.reduce((sum, l) => sum.add(l), tf.scalar(0))
   }
-
+/*
   private updateWeights (network: BaseMuZeroNet, batchSamples: Array<MuZeroBatch<Action>>, learningRate: number): void {
     //    const optimizer = tf.train.momentum(learningRate, this.momentum)
     const optimizerSGD = tf.train.sgd(learningRate)
@@ -123,7 +170,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
       const gameGradients: Record<string, tf.Tensor[]> = {}
       if (batch.actions.length > 0) {
         const initialTarget = batch.targets[0]
-        const gradients = network.trainInitialInference(batch.image, initialTarget.policy, initialTarget.value)
+        const gradients = network.trainInitialInference(tf.tensor2d(batch.image), initialTarget.policy, initialTarget.value)
         this.pushGradients(gameGradients, gradients.grads)
         loss.push(gradients.loss)
         lossInitialInference.push(gradients.loss)

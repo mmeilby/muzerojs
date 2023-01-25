@@ -9,7 +9,7 @@ export class MuZeroNet extends BaseMuZeroNet {
       units: this.hxSize,
       activation: 'tanh',
       kernelInitializer: 'glorotUniform',
-      biasInitializer: 'zeros',
+      biasInitializer: 'glorotUniform',
       kernelRegularizer: 'l1l2',
       biasRegularizer: 'l1l2'
     }).apply(observationInput)
@@ -71,7 +71,7 @@ export class MuZeroNet extends BaseMuZeroNet {
       units: this.hxSize,
       activation: 'tanh',
       kernelInitializer: 'glorotUniform',
-      biasInitializer: 'zeros',
+      biasInitializer: 'glorotUniform',
       kernelRegularizer: 'l1l2',
       biasRegularizer: 'l1l2'
     }).apply(makeHiddenLayer('dynamics_state_hidden', this.hiddenLayerSize))
