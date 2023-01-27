@@ -27,9 +27,9 @@ export class MuZeroSharedStorage {
     this.networkCount = 0
   }
 
-  public uniformNetwork (): BaseMuZeroNet {
+  public uniformNetwork (learningRate?: number): BaseMuZeroNet {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
-    return new MuZeroNet(this.config.observationSize, this.config.actionSpaceSize)
+    return new MuZeroNet(this.config.observationSize, this.config.actionSpaceSize, learningRate ?? 0)
   }
 
   public latestNetwork (): BaseMuZeroNet {

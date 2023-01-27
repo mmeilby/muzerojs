@@ -20,9 +20,6 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
   // Number of game moves to keep for every batch element
   private readonly numUnrollSteps: number
 
-  // Scale the value loss to avoid overfitting of the value function, paper recommends 0.25 (See paper appendix Reanalyze)
-  private readonly valueLossWeight: number
-
   // L2 weights regularization
   private readonly weightDecay: number
   // Used only if optimizer is SGD
@@ -50,198 +47,31 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
     this.tdSteps = config.tdSteps
     this.numUnrollSteps = config.numUnrollSteps ?? 10
     this.weightDecay = config.weightDecay ?? 0.0001
-    this.lrInit = config.learningRate ?? 0.1
+    this.lrInit = config.learningRate ?? 0.001
     this.lrDecayRate = 1
     this.lrDecaySteps = 10000
     this.momentum = 0.9
-    this.valueLossWeight = 0.25
   }
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    const network = storage.uniformNetwork()
+    const network = storage.uniformNetwork(this.lrInit)
     storage.latestNetwork().copyWeights(network)
     debug('Training initiated')
     debug(`Training steps: ${this.trainingSteps}`)
     const useBaseline = tf.memory().numTensors
-    let learningRate = this.lrInit
-    const optimizer = tf.train.momentum(learningRate, this.momentum)
     for (let step = 1; step <= this.trainingSteps; step++) {
       if (step % this.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
-      let losses = 0
-      let samples = 0
       const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps).filter(batch => batch.actions.length > 0)
-      losses += await network.trainInference(batchSamples)
-      samples++
-      /*
-      const recurrentTargets = batchSamples.map(batch => batch.actions.map((action, index) => {
-        const target = batch.targets[index + 1]
-        if (target.policy.length > 1) {
-          return {action, target}
-        } else {
-          throw new Error(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${index}`)
-        }
-      }))
-      for (const batch of batchSamples) {
-        if (batch.actions.length > 0) {
-          const obs = tf.tensor2d(batch.image)
-          const target = batch.targets[0]
-          const networkOutputInitial = network.initialInference(obs)
-          const loss = await network.trainInitialInference(obs, target.policy, target.value)
-          let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
-          for (var i = 0; i < batch.actions.length; i++) {
-            const action = batch.actions[i]
-            const target = batch.targets[i + 1]
-            if (target.policy.length > 1) {
-              const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
-              const lossR = await network.trainRecurrentInference(hiddenState, network.policyTransform(action.id), target.policy, target.value, target.reward, this.valueLossWeight)
-              losses += lossR
-              hiddenState = networkOutput.hiddenState
-            } else {
-              debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
-            }
-          }
-          samples++
-        }
+      const [ losses, accuracy ] = await network.trainInference(batchSamples)
+      debug(`Mean loss: ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
+      if (tf.memory().numTensors - useBaseline > 0) {
+        debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline}`)
       }
-      */
-
-      /*
-      tf.tidy(() => {
-        const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps)
-        for (const batch of batchSamples) {
-          if (batch.actions.length > 0) {
-            const lossFunc = (): tf.Scalar => this.calcLoss(network, batch)
-            optimizer.setLearningRate(learningRate)
-            const cost = optimizer.minimize(lossFunc, true)
-            if (cost !== null) {
-              losses += cost.bufferSync().get(0)
-              samples++
-            }
-          }
-        }
-      })
-      */
-      if (step < this.lrDecaySteps) {
-        learningRate *= this.lrDecayRate
-      }
-      debug(`Mean cost: ${(samples > 0 ? losses/samples : 0).toFixed(3)}`)
-      debug(`Optimizer tensor usage: ${tf.memory().numTensors - useBaseline}`)
       await tf.nextFrame()
     }
-    optimizer.dispose()
     await storage.saveNetwork(this.trainingSteps, network)
-  }
-
-  private calcLoss (network: BaseMuZeroNet, batch: MuZeroBatch<Action>): tf.Scalar {
-    const loss: tf.Scalar[] = []
-    const target = batch.targets[0]
-    const networkOutputInitial = network.initialInference(tf.tensor2d(batch.image))
-    loss.push(
-      network.lossPolicy(target.policy, networkOutputInitial.policy).add(
-      network.lossValue(target.value, networkOutputInitial.value))
-    )
-    let hiddenState: tf.Tensor = networkOutputInitial.hiddenState
-    batch.actions.forEach((action, i) => {
-      const target = batch.targets[i + 1]
-      if (target.policy.length > 1) {
-        const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(action.id))
-        loss.push(
-            network.lossPolicy(target.policy, networkOutput.policy).add(
-            network.lossValue(target.value, networkOutput.value)).add(
-            network.lossReward(target.reward, networkOutput.reward))
-        )
-        hiddenState = networkOutput.hiddenState
-      } else {
-        debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
-      }
-    })
-    return loss.reduce((sum, l) => sum.add(l), tf.scalar(0))
-  }
-/*
-  private updateWeights (network: BaseMuZeroNet, batchSamples: Array<MuZeroBatch<Action>>, learningRate: number): void {
-    //    const optimizer = tf.train.momentum(learningRate, this.momentum)
-    const optimizerSGD = tf.train.sgd(learningRate)
-    const loss: tf.Scalar[] = []
-    const lossInitialInference: tf.Scalar[] = []
-    const allGradients: Record<string, tf.Tensor[][]> = {}
-    for (const batch of batchSamples) {
-      const gameGradients: Record<string, tf.Tensor[]> = {}
-      if (batch.actions.length > 0) {
-        const initialTarget = batch.targets[0]
-        const gradients = network.trainInitialInference(tf.tensor2d(batch.image), initialTarget.policy, initialTarget.value)
-        this.pushGradients(gameGradients, gradients.grads)
-        loss.push(gradients.loss)
-        lossInitialInference.push(gradients.loss)
-        // Initial step, from the real observation.
-        let hiddenState: tf.Tensor = gradients.state
-        const lossScale = 1 / batch.actions.length
-        batch.actions.forEach((action, i) => {
-          const target = batch.targets[i + 1]
-          if (target.policy.length > 1) {
-            const gradients = network.trainRecurrentInference(
-              hiddenState,
-              network.policyTransform(action.id),
-              target.policy, target.value, target.reward,
-              lossScale)
-            this.pushGradients(gameGradients, gradients.grads)
-            loss.push(gradients.loss)
-            hiddenState = gradients.state
-          } else {
-            debug(`ERROR - policy malformed: ${JSON.stringify(batch)} I=${i}`)
-          }
-        })
-      }
-      // transfer all gradients
-      for (const key in gameGradients) {
-        if (key in allGradients) {
-          allGradients[key].push(gameGradients[key])
-        } else {
-          allGradients[key] = [gameGradients[key]]
-        }
-      }
-    }
-
-    // The following line does three things:
-    // 1. Performs reward discounting, i.e., make recent rewards count more
-    //    than rewards from the further past. The effect is that the reward
-    //    values from a game with many steps become larger than the values
-    //    from a game with fewer steps.
-    // 2. Normalize the rewards, i.e., subtract the global mean value of the
-    //    rewards and divide the result by the global standard deviation of
-    //    the rewards. Together with step 1, this makes the rewards from
-    //    long-lasting games positive and rewards from short-lasting
-    //    negative.
-    // 3. Scale the gradients with the normalized reward values.
-    //      const normalizedRewards =
-    //        this.discountAndNormalizeRewards(allRewards, discountRate);
-    // Add the scaled gradients to the weights of the policy network. This
-    // step makes the policy network more likely to make choices that lead
-    // to long-lasting games in the future (i.e., the crux of this RL
-    // algorithm.)
-    optimizerSGD.applyGradients(this.scaleAndAverageGradients(allGradients)) //, normalizedRewards));
-    tf.dispose(allGradients)
-    debug(`Initial inference loss: ${tf.mean(tf.stack(lossInitialInference)).bufferSync().get(0).toFixed(3)}, Total loss: ${tf.mean(tf.stack(loss)).bufferSync().get(0).toFixed(3)}`)
-  }
-
-  /**
-   * Push a new dictionary of gradients into records.
-   *
-   * @param {{[varName: string]: tf.Tensor[]}} record The record of variable
-   *   gradient: a map from variable name to the Array of gradient values for
-   *   the variable.
-   * @param {{[varName: string]: tf.Tensor}} gradients The new gradients to push
-   *   into `record`: a map from variable name to the gradient Tensor.
-   */
-  private pushGradients (record: Record<string, tf.Tensor[]>, gradients: Record<string, tf.Tensor>): void {
-    for (const key in gradients) {
-      if (key in record) {
-        record[key].push(gradients[key])
-      } else {
-        record[key] = [gradients[key]]
-      }
-    }
   }
 
   /**

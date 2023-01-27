@@ -53,7 +53,7 @@ describe('Muzero Self Play Unit Test:', () => {
       observationSize: model.observationSize,
       actionSpaceSize: config.actionSpaceSize
     })
-    const network = new MuZeroNet(model.observationSize, config.actionSpaceSize)
+    const network = new MuZeroNet(model.observationSize, config.actionSpaceSize, 0.01)
     await sharedStorage.saveNetwork(1, network)
     const selfPlay = new MuZeroSelfPlay({
       selfPlaySteps: 2,

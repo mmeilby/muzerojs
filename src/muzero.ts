@@ -36,7 +36,7 @@ async function run (): Promise<void> {
     trainingSteps: 5000,
     checkpointInterval: 25,
     tdSteps: config.actionSpaceSize,
-    learningRate: 0.01
+    learningRate: 0.001
   })
   debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   await Promise.all([
