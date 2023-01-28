@@ -109,7 +109,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
       // States past the end of game are treated as absorbing states.
       targets.push({ value: 0, reward: 0, policy: [] })
     }
-    for (let currentIndex = index + 1; currentIndex < index + numUnrollSteps + 2; currentIndex++) {
+    for (let currentIndex = index + 1; currentIndex < index + numUnrollSteps + 1; currentIndex++) {
       if (currentIndex < this.rootValues.length) {
         targets.push({
           value: this.computeTargetValue(currentIndex, tdSteps, discount),

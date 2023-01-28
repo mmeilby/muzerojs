@@ -145,9 +145,9 @@ export abstract class BaseMuZeroNet {
    * @param action
    */
   public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): NetworkOutput {
-    const x = tf.concat([hiddenState, action], 1)
-    const tfNewHiddenState = this.dynamicsModelS.predict(x) as tf.Tensor
-    const tfReward = this.dynamicsModelR.predict(x) as tf.Tensor
+    const conditionedHiddenState = tf.concat([hiddenState, action], 1)
+    const tfNewHiddenState = this.dynamicsModelS.predict(conditionedHiddenState) as tf.Tensor
+    const tfReward = this.dynamicsModelR.predict(conditionedHiddenState) as tf.Tensor
     const tfPolicy = this.predictionModelP.predict(tfNewHiddenState) as tf.Tensor
     const tfValue = this.predictionModelV.predict(tfNewHiddenState) as tf.Tensor
     const newHiddenState: number[] = tfNewHiddenState.reshape([-1]).arraySync() as number[]
@@ -157,6 +157,10 @@ export abstract class BaseMuZeroNet {
     return new NetworkOutput(tfValue, value, tfReward, reward, tfPolicy, policy, tfNewHiddenState, newHiddenState)
   }
 
+  /**
+   * trainInference
+   * @param samples
+   */
   public async trainInference (samples: MuZeroBatch<Actionwise>[]): Promise<number[]> {
     const losses: number[] = []
     const accuracy: number[] = []
@@ -232,76 +236,6 @@ export abstract class BaseMuZeroNet {
     return [ loss, acc ]
   }
 
-  /**
-   * trainInitialInference
-   * @param obs
-   * @param targetState
-   * @param targetPolicy
-   * @param targetValue
-   *
-  public async trainInitialInference (observations: number[][][], targets: MuZeroTarget[]): Promise<tf.Tensor[]> {
-    const observations = batchSamples.map(batch => batch.image)
-    const initialTargets = batchSamples.map(batch => batch.targets[0])
-    const obs = observations.map(image => tf.tensor2d(image))
-    const targetPolicies = targets.map(target => this.policyPredict(target.policy))
-    const targetValues = targets.map(target => this.valueTransform(target.value))
-    const states = this.representationModel.predict(obs) as tf.Tensor[]
-    const historyP = await this.predictionModelP.fit(states, targetPolicies, { batchSize: 4, epochs: 3 })
-    const historyV = await this.predictionModelV.fit(states, targetValues, { batchSize: 4, epochs: 3 })
-    debug(`historyP: ${JSON.stringify(historyP.history)}`)
-    debug(`historyV: ${JSON.stringify(historyV.history)}`)
-    /*
-    let state: tf.Tensor = tf.tensor1d(new Array(this.hxSize))
-    const policyGradients = tf.variableGrads(() => {
-      const result = this.forwardModel.predict(obs.reshape([1, -1])) as tf.Tensor[]
-      state = tf.keep(result[0])
-      return this.lossPolicy(targetPolicy, result[1]).add(this.lossValue(targetValue, result[2]))
-    })
-
-      historyP.history.loss.reduce((s ,v) => s+(v as number), 0) +
-      historyV.history.loss.reduce((s ,v) => s+(v as number), 0),
-    *
-    return states
-  }
-
-  /**
-   * trainRecurrentInference
-   * @param hiddenState
-   * @param action
-   * @param targetState
-   * @param targetPolicy
-   * @param targetValue
-   * @param targetReward
-   * @param lossScale
-   *
-  public async trainRecurrentInference (states: tf.Tensor[], targets: { action: tf.Tensor, target: MuZeroTarget }[][], lossScale: number): Promise<number> {
-//    this.forwardModel.summary()
-    const x = tf.concat([states, action], 1)
-    const newStates = this.dynamicsModelS.predict(x)
-    const historyR = await this.dynamicsModelR.fit(x, this.valueTransform(targetReward), { batchSize: 1, epochs: 3 })
-    const targetPolicies = targets.map(target => this.policyPredict(target.policy))
-    const targetValues = targets.map(target => this.valueTransform(target.value))
-    const historyP = await this.predictionModelP.fit(states, targetPolicies, { batchSize: 4, epochs: 3 })
-    const historyV = await this.predictionModelV.fit(states, targetValues, { batchSize: 4, epochs: 3 })
-    debug(`historyP: ${JSON.stringify(historyP.history)}`)
-    debug(`historyV: ${JSON.stringify(historyV.history)}`)
-
-
-    /*
-    let state: tf.Tensor = tf.tensor1d(new Array(this.hxSize))
-    const policyGradients = tf.variableGrads(() => {
-      const result = this.recurrentModel.predict(x) as tf.Tensor[]
-      state = tf.keep(result[0])
-      return this.lossReward(targetReward, result[1]).add(this.lossPolicy(targetPolicy, result[2])).add(this.lossValue(targetValue, result[3])).mul(lossScale)
-    })
-    return {
-      grads: policyGradients.grads,
-      loss: policyGradients.value,
-      state
-    }
-    *
-  }
-  */
   public lossReward (targetReward: number, result: tf.Tensor): tf.Scalar {
     return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result).asScalar()
   }
@@ -350,11 +284,11 @@ export abstract class BaseMuZeroNet {
 
   public async save (path: string): Promise<void> {
     await Promise.all([
-      this.representationModel.save(path + '_representation'),
-      this.predictionModelP.save(path + '_prediction_p'),
-      this.predictionModelV.save(path + '_prediction_v'),
-      this.dynamicsModelS.save(path + '_dynamics_s'),
-      this.dynamicsModelR.save(path + '_dynamics_r')
+      this.representationModel.save(path + 'rep'),
+      this.predictionModelP.save(path + 'pre_p'),
+      this.predictionModelV.save(path + 'pre_v'),
+      this.dynamicsModelS.save(path + 'dyn_s'),
+      this.dynamicsModelR.save(path + 'dyn_r')
     ])
   }
 
@@ -367,11 +301,11 @@ export abstract class BaseMuZeroNet {
         dynamicsModelS,
         dynamicsModelR
       ] = await Promise.all([
-        tf.loadLayersModel(path + '_representation/model.json'),
-        tf.loadLayersModel(path + '_prediction_p/model.json'),
-        tf.loadLayersModel(path + '_prediction_v/model.json'),
-        tf.loadLayersModel(path + '_dynamics_s/model.json'),
-        tf.loadLayersModel(path + '_dynamics_r/model.json')
+        tf.loadLayersModel(path + 'rep/model.json'),
+        tf.loadLayersModel(path + 'pre_p/model.json'),
+        tf.loadLayersModel(path + 'pre_v/model.json'),
+        tf.loadLayersModel(path + 'dyn_s/model.json'),
+        tf.loadLayersModel(path + 'dyn_r/model.json')
       ])
       debug(`Disposed ${this.dispose()} tensors`)
       this.representationModel = representationModel

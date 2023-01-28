@@ -1,7 +1,6 @@
 import { MuZeroNet } from '../networks/fullconnected'
 import { BaseMuZeroNet } from '../networks/network'
 import debugFactory from 'debug'
-import * as tf from "@tensorflow/tfjs-node";
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
@@ -40,7 +39,7 @@ export class MuZeroSharedStorage {
   public async loadNetwork (): Promise<void> {
     try {
       debug('Loading network')
-      await this.latestNetwork_.load('file://data/muzeronet')
+      await this.latestNetwork_.load('file://data/')
     } catch (e) {
       debug(e)
     }
@@ -48,7 +47,7 @@ export class MuZeroSharedStorage {
 
   public async saveNetwork (step: number, network: BaseMuZeroNet): Promise<void> {
     debug('Saving network')
-    await network.save('file://data/muzeronet')
+    await network.save('file://data/')
     network.copyWeights(this.latestNetwork_)
     this.networkCount = step
   }

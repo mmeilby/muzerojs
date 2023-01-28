@@ -33,7 +33,7 @@ async function run (): Promise<void> {
     simulations: 100
   }, factory, model)
   const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>({
-    trainingSteps: 5000,
+    trainingSteps: 1000,
     checkpointInterval: 25,
     tdSteps: config.actionSpaceSize,
     learningRate: 0.001
