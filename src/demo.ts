@@ -4,6 +4,7 @@ import { NimNetModel } from './muzero/games/nim/nimmodel'
 import { MuZeroAction } from './muzero/games/core/action'
 import debugFactory from 'debug'
 import * as tf from '@tensorflow/tfjs-node'
+import {MuZeroConfig} from "./muzero/games/core/config";
 
 const debug = debugFactory('muzero:demo:play ')
 
@@ -11,10 +12,8 @@ async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const model = new NimNetModel()
   const config = factory.config()
-  const sharedStorage = new MuZeroSharedStorage({
-    observationSize: model.observationSize,
-    actionSpaceSize: config.actionSpaceSize
-  })
+  const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
+  const sharedStorage = new MuZeroSharedStorage(conf)
   const network = await sharedStorage.latestNetwork()
   let state = factory.reset()
   const currentObservation = model.observation(state)
@@ -45,4 +44,4 @@ async function run (): Promise<void> {
   debug(`--- Done ${state.toString()}`)
 }
 
-run().then(res => {}).catch(err => console.error(err))
+run().then(_ => {}).catch(err => console.error(err))

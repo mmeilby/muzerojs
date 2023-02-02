@@ -9,6 +9,7 @@ import { TranspositionTable, DataGateway } from './data-store'
 import debugFactory from 'debug'
 import { BaseMuZeroNet } from '../networks/network'
 import { NetworkOutput } from '../networks/networkoutput'
+import {MuZeroConfig} from "../games/core/config";
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
 const { jStat } = require('jstat')
@@ -19,33 +20,7 @@ const debug = debugFactory('muzero:selfplay:module')
  */
 export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise> {
   constructor (
-    private readonly config: {
-      // Total number of self play steps
-      selfPlaySteps: number
-      // Number of all possible actions
-      actionSpaceSize: number
-      // Number of future moves self-simulated in MCTS
-      simulations: number
-      // Maximum number of moves if game is not finished before
-      maxMoves: number
-      // Chronological discount of the reward. Defaults to 1.0
-      discount?: number
-      // The multiplier by which to decay the reward in the backpropagtion phase. Defaults to 1.
-      decayingParam?: number
-      // Exploration noise to include when exploring possible actions.
-      // In order to ensure that the Monte Carlo Tree Search explores a range of possible actions
-      // rather than only exploring the action which it currently believes to be optimal.
-      // For chess, rootDirichletAlpha = 0.3, defaults to 0.15
-      rootDirichletAlpha?: number
-      // The fraction of noise to include when exploring possible actions.
-      // A fraction of 0 disables noise. A fraction of 1 suppress optimal nodes search.
-      // Defaults to 0.25 (25% noise included)
-      rootExplorationFraction?: number
-      // UCB calculation contants
-      pbCbase?: number
-      // UCB calculation contants
-      pbCinit?: number
-    },
+    private readonly config: MuZeroConfig,
     private readonly env: MuZeroEnvironment<State, Action>,
     private readonly model: MuZeroModel<State>
   ) {
@@ -122,7 +97,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
 //      debug(`Network output: ${JSON.stringify(networkOutput)}`)
       this.expandNode(rootNode, networkOutput, dataStore)
     })
-    // We also need  to add exploration noise to the root node actions.
+    // We also need to add exploration noise to the root node actions.
     // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
     // rather than only exploring the action which it currently believes to be optimal.
     this.addExplorationNoise(rootNode)
@@ -214,8 +189,8 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
       return child.mctsState.visits
     }
-    const pbCbase = this.config.pbCbase ?? 19652
-    const pbCinit = this.config.pbCinit ?? 1.25
+    const pbCbase = this.config.pbCbase
+    const pbCinit = this.config.pbCinit
     const pbC1 = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
     const pbC2 = Math.sqrt(parent.mctsState.visits) / (child.mctsState.visits + 1)
     const priorScore = pbC1 * pbC2 * child.mctsState.prior
@@ -273,7 +248,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       child.mctsState.valueSum += child.player === player ? value : -value
       minMaxStats.update(child.mctsState.value)
       // decay value and include network predicted reward
-      value = child.mctsState.reward + (this.config.decayingParam ?? 1.0) * value
+      value = child.mctsState.reward + this.config.decayingParam * value
       // move to parent node
       child = child.parent
     }
@@ -288,14 +263,14 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     let sumNoise = 0
     // first loop with the gamma sample
     for (let i = 0; i < node.children.length; i++) {
-      noise[i] = jStat.gamma.sample(this.config.rootDirichletAlpha ?? 0.15, node.children.length, 1)
+      noise[i] = jStat.gamma.sample(this.config.rootDirichletAlpha, node.children.length, 1)
       sumNoise = sumNoise + noise[i]
     }
     // second loop to normalize
     for (let i = 0; i < node.children.length; i++) {
       noise[i] = noise[i] / sumNoise
     }
-    const frac = this.config.rootExplorationFraction ?? 0.25
+    const frac = this.config.rootExplorationFraction
     node.children.forEach((child, i) => {
       child.mctsState.prior = child.mctsState.prior * (1 - frac) + noise[i] * frac
     })

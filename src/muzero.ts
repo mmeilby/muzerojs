@@ -8,6 +8,7 @@ import { NimNetModel } from './muzero/games/nim/nimmodel'
 import { MuZeroTraining } from './muzero/training/training'
 import * as tf from "@tensorflow/tfjs-node";
 import debugFactory from 'debug'
+import {MuZeroConfig} from "./muzero/games/core/config";
 
 const debug = debugFactory('muzero:muzero:debug')
 
@@ -15,29 +16,14 @@ async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const model = new NimNetModel()
   const config = factory.config()
-  const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>({
-    replayBufferSize: 200,
-    actionSpace: config.actionSpaceSize,
-    tdSteps: config.actionSpaceSize
-  })
+  const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
+  conf.lrInit = 0.01
+  const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
   replayBuffer.loadSavedGames(factory, model)
-  const sharedStorage = new MuZeroSharedStorage({
-    observationSize: model.observationSize,
-    actionSpaceSize: config.actionSpaceSize
-  })
+  const sharedStorage = new MuZeroSharedStorage(conf)
   await sharedStorage.loadNetwork()
-  const selfPlay = new MuZeroSelfPlay({
-    selfPlaySteps: 1000,
-    actionSpaceSize: config.actionSpaceSize,
-    maxMoves: config.actionSpaceSize,
-    simulations: 100
-  }, factory, model)
-  const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>({
-    trainingSteps: 1000,
-    checkpointInterval: 25,
-    tdSteps: config.actionSpaceSize,
-    learningRate: 0.001
-  })
+  const selfPlay = new MuZeroSelfPlay(conf, factory, model)
+  const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>(conf)
   debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),

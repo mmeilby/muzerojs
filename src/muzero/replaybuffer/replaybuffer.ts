@@ -7,6 +7,7 @@ import fs from 'fs'
 import debugFactory from 'debug'
 import { MuZeroEnvironment } from '../games/core/environment'
 import { MuZeroModel } from '../games/core/model'
+import {MuZeroConfig} from "../games/core/config";
 const debug = debugFactory('muzero:replaybuffer:module')
 
 /**
@@ -38,17 +39,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
    * paper suggests 1.0
    */
   public constructor (
-    private readonly config: {
-      replayBufferSize: number
-      actionSpace: number
-      tdSteps: number
-      batchSize?: number
-      numUnrollSteps?: number
-      stackedObservations?: number
-      discount?: number
-      prioritizedReplay?: boolean
-      priorityAlpha?: number
-    }
+    private readonly config: MuZeroConfig
   ) {
     this.buffer = []
     this.numPlayedGames = 0
@@ -62,14 +53,13 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
    * @param gameHistory
    */
   public saveGame (gameHistory: MuZeroGameHistory<State, Action>): void {
-    const discount = this.config.discount ?? 1.0
-    if (this.config.prioritizedReplay ?? false) {
+    if (this.config.prioritizedReplay) {
       // Initial priorities for the prioritized replay (See paper appendix Training)
       // For each game position calculate the absolute deviation from target value. Largest deviation has priority
       const priorities: number[] = []
       gameHistory.rootValues.forEach((rootValue, i) => {
-        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps, discount)
-        const priority = Math.pow(Math.abs(rootValue - targetValue), this.config.priorityAlpha ?? 1.0)
+        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps, this.config.discount)
+        const priority = Math.pow(Math.abs(rootValue - targetValue), this.config.priorityAlpha)
         priorities.push(priority)
       })
       // Deviations are saved for later priority sorting
@@ -102,19 +92,18 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
   public sampleBatch (numUnrollSteps: number, tdSteps: number, forceUniform = false): Array<MuZeroBatch<Action>> {
     const gameSamples: Array<MuZeroGameSample<State, Action>> = []
     if (this.numPlayedGames > 0) {
-      for (let c = 0; c < (this.config.batchSize ?? 64); c++) {
+      for (let c = 0; c < (this.config.batchSize); c++) {
         gameSamples.push(this.sampleGame(forceUniform))
       }
     }
     //    debug('Sample %d games', this.batchSize)
-    const discount = this.config.discount ?? 1.0
     return gameSamples.map(g => {
       const gameHistory = g.gameHistory
       //      debug(game.env.toString(game.state))
       //      debug(game.state.toString())
       const i = this.samplePosition(gameHistory, forceUniform).position
       const actionHistory = gameHistory.actionHistory.slice(i, i + numUnrollSteps)
-      const target = gameHistory.makeTarget(i, numUnrollSteps, tdSteps, discount)
+      const target = gameHistory.makeTarget(i, numUnrollSteps, tdSteps, this.config.discount)
       return new MuZeroBatch(gameHistory.makeImage(i), actionHistory, target)
     })
   }
@@ -126,7 +115,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
    * @private
    */
   private sampleGame (forceUniform: boolean): MuZeroGameSample<State, Action> {
-    const prioritizedSample = (this.config.prioritizedReplay ?? false) && !forceUniform
+    const prioritizedSample = this.config.prioritizedReplay && !forceUniform
     let gameProb
     let gameIndex = 0
     if (prioritizedSample) {
@@ -163,7 +152,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
    * @private
    */
   private samplePosition (gameHistory: MuZeroGameHistory<State, Action>, forceUniform: boolean): MuZeroPositionSample {
-    const prioritizedSample = (this.config.prioritizedReplay ?? false) && !forceUniform
+    const prioritizedSample = this.config.prioritizedReplay && !forceUniform
     let positionProb
     let positionIndex = 0
     if (prioritizedSample) {

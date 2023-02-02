@@ -5,65 +5,26 @@ import * as tf from '@tensorflow/tfjs-node'
 import { Actionwise, Playerwise } from '../selfplay/entities'
 
 import debugFactory from 'debug'
-import { MuZeroBatch } from '../replaybuffer/batch'
-import { BaseMuZeroNet } from '../networks/network'
+import {MuZeroConfig} from "../games/core/config";
 const debug = debugFactory('muzero:training:module')
 
 export class MuZeroTraining<State extends Playerwise, Action extends Actionwise> {
-  // Total number of training steps (ie weights update according to a batch)
-  private readonly trainingSteps: number
-  // Number of training steps before using the model for self-playing
-  private readonly checkpointInterval: number
 
-  // Number of steps in the future to take into account for calculating the target value
-  private readonly tdSteps: number
-  // Number of game moves to keep for every batch element
-  private readonly numUnrollSteps: number
-
-  // L2 weights regularization
-  private readonly weightDecay: number
-  // Used only if optimizer is SGD
-  private readonly momentum: number
-
-  // Exponential learning rate schedule
-
-  // Initial learning rate
-  private readonly lrInit: number
-  // Set it to 1 to use a constant learning rate
-  private readonly lrDecayRate: number
-  // Number of steps to decay the learning rate?
-  private readonly lrDecaySteps: number
-
-  constructor (config: {
-    trainingSteps: number
-    checkpointInterval: number
-    tdSteps: number
-    numUnrollSteps?: number
-    weightDecay?: number
-    learningRate?: number
-  }) {
-    this.trainingSteps = config.trainingSteps
-    this.checkpointInterval = config.checkpointInterval
-    this.tdSteps = config.tdSteps
-    this.numUnrollSteps = config.numUnrollSteps ?? 10
-    this.weightDecay = config.weightDecay ?? 0.0001
-    this.lrInit = config.learningRate ?? 0.001
-    this.lrDecayRate = 1
-    this.lrDecaySteps = 10000
-    this.momentum = 0.9
-  }
+  constructor (
+      private readonly config: MuZeroConfig
+  ) {}
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    const network = storage.uniformNetwork(this.lrInit)
+    const network = storage.uniformNetwork(this.config.lrInit)
     storage.latestNetwork().copyWeights(network)
     debug('Training initiated')
-    debug(`Training steps: ${this.trainingSteps}`)
+    debug(`Training steps: ${this.config.trainingSteps}`)
     const useBaseline = tf.memory().numTensors
-    for (let step = 1; step <= this.trainingSteps; step++) {
-      if (step % this.checkpointInterval === 0) {
+    for (let step = 1; step <= this.config.trainingSteps; step++) {
+      if (step % this.config.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
-      const batchSamples = replayBuffer.sampleBatch(this.numUnrollSteps, this.tdSteps).filter(batch => batch.actions.length > 0)
+      const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
       const [ losses, accuracy ] = await network.trainInference(batchSamples)
       debug(`Mean loss: ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
       if (tf.memory().numTensors - useBaseline > 0) {
@@ -71,7 +32,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
       }
       await tf.nextFrame()
     }
-    await storage.saveNetwork(this.trainingSteps, network)
+    await storage.saveNetwork(this.config.trainingSteps, network)
   }
 
   /**

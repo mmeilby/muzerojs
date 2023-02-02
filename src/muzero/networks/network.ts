@@ -31,15 +31,17 @@ export abstract class BaseMuZeroNet {
   private predictionModelV: tf.LayersModel
   private dynamicsModelS: tf.LayersModel
   private dynamicsModelR: tf.LayersModel
+  private initialInferenceModel: tf.LayersModel
+  private recurrentInferenceModel: tf.LayersModel
 
   private readonly logDir: string
 
   // Representation network: h(obs)->state
-  protected abstract h (observationInput: tf.SymbolicTensor): { s: tf.SymbolicTensor }
+  protected abstract h (): { sh: tf.layers.Layer, s: tf.layers.Layer }
   // Prediction network: f(state)->policy,value
-  protected abstract f (stateInput: tf.SymbolicTensor): { v: tf.SymbolicTensor, p: tf.SymbolicTensor }
+  protected abstract f (): { vh: tf.layers.Layer, v: tf.layers.Layer, ph: tf.layers.Layer, p: tf.layers.Layer }
   // Dynamics network: g(state,action)->state,reward
-  protected abstract g (actionPlaneInput: tf.SymbolicTensor): { s: tf.SymbolicTensor, r: tf.SymbolicTensor }
+  protected abstract g (): { sh: tf.layers.Layer, s: tf.layers.Layer, rh: tf.layers.Layer, r: tf.layers.Layer }
 
   constructor (
     inputSize: number,
@@ -61,11 +63,11 @@ export abstract class BaseMuZeroNet {
     // make model for h(o)->s f(s)->p,v
     // s: batch_size x time x state_x x state_y
     const observationInput = tf.input({ shape: [inputSize], name: 'observation_input' })
-    const h = this.h(observationInput)
+    const h = this.h()
     this.representationModel = tf.model({
       name: 'Representation Model',
       inputs: observationInput,
-      outputs: h.s
+      outputs: h.s.apply(h.sh.apply(observationInput)) as tf.SymbolicTensor
     })
     this.representationModel.compile({
       optimizer: 'sgd',
@@ -73,11 +75,11 @@ export abstract class BaseMuZeroNet {
     })
 
     const hiddenStateInput = tf.input({ shape: [this.hxSize], name: 'hidden_state_input' })
-    const f = this.f(hiddenStateInput)
+    const f = this.f()
     this.predictionModelP = tf.model({
       name: 'Prediction Policy Model',
       inputs: hiddenStateInput,
-      outputs: f.p
+      outputs: f.p.apply(f.ph.apply(hiddenStateInput)) as tf.SymbolicTensor
     })
     this.predictionModelP.compile({
       optimizer: tf.train.sgd(learningRate),
@@ -86,7 +88,7 @@ export abstract class BaseMuZeroNet {
     this.predictionModelV = tf.model({
       name: 'Prediction Value Model',
       inputs: hiddenStateInput,
-      outputs: f.v
+      outputs: f.v.apply(f.vh.apply(hiddenStateInput)) as tf.SymbolicTensor
     })
     const scale = this.valueScale
     function valueLoss(multiClassLabels: tf.Tensor, logits: tf.Tensor, weights?: tf.Tensor, labelSmoothing?: number, reduction?: tf.Reduction) {
@@ -97,14 +99,25 @@ export abstract class BaseMuZeroNet {
       loss: valueLoss, metrics: ['acc']
     })
 
+    // make model for initial inference f(h(o))->p
+    this.initialInferenceModel = tf.model({
+      name: 'Initial Inference Model',
+      inputs: observationInput,
+      outputs: f.v.apply(f.vh.apply(h.s.apply(h.sh.apply(observationInput)))) as tf.SymbolicTensor
+    })
+    this.initialInferenceModel.compile({
+      optimizer: tf.train.sgd(learningRate),
+      loss: valueLoss, metrics: ['acc']
+    })
+
     // make model for g(s,a)->s,r f(s)->p,v
     // a: one hot encoded vector of shape batch_size x (state_x * state_y)
     const actionPlaneInput = tf.input({ shape: [this.hxSize + this.actionSpaceN], name: 'action_plane_input' })
-    const g = this.g(actionPlaneInput)
+    const g = this.g()
     this.dynamicsModelS = tf.model({
       name: 'Dynamics State Model',
       inputs: actionPlaneInput,
-      outputs: g.s
+      outputs: g.s.apply(g.sh.apply(actionPlaneInput)) as tf.SymbolicTensor
     })
     this.dynamicsModelS.compile({
       optimizer: 'sgd',
@@ -113,11 +126,22 @@ export abstract class BaseMuZeroNet {
     this.dynamicsModelR = tf.model({
       name: 'Dynamics Reward Model',
       inputs: actionPlaneInput,
-      outputs: g.r
+      outputs: g.r.apply(g.rh.apply(actionPlaneInput)) as tf.SymbolicTensor
     })
     this.dynamicsModelR.compile({
       optimizer: tf.train.sgd(learningRate),
       loss: tf.losses.sigmoidCrossEntropy, metrics: ['acc']
+    })
+
+    // make model for initial inference f(h(o))->p
+    this.recurrentInferenceModel = tf.model({
+          name: 'Recurrent Inference Model',
+          inputs: actionPlaneInput,
+          outputs: f.v.apply(f.vh.apply(g.s.apply(g.sh.apply(actionPlaneInput)))) as tf.SymbolicTensor
+        })
+    this.recurrentInferenceModel.compile({
+      optimizer: tf.train.sgd(learningRate),
+      loss: valueLoss, metrics: ['acc']
     })
   }
 
@@ -190,7 +214,9 @@ export abstract class BaseMuZeroNet {
     const targetValues = tf.tidy(() => tf.concat(initialTargets.map(target => this.valueTransform(target.value)), 0))
     const states = this.representationModel.predict(observations) as tf.Tensor
     await trackLoss(this.predictionModelP.fit(states, targetPolicies, fittingArgs))
-    await trackLoss(this.predictionModelV.fit(states, targetValues, fittingArgs))
+    // Train both f(s)->v and h(o)->s networks
+    await trackLoss(this.initialInferenceModel.fit(observations, targetValues, fittingArgs))
+//    await trackLoss(this.predictionModelV.fit(states, targetValues, fittingArgs))
     observations.dispose()
     targetPolicies.dispose()
     targetValues.dispose()
@@ -219,7 +245,9 @@ export abstract class BaseMuZeroNet {
     states.dispose()
     for (const dataSet of dataSets) {
       await trackLoss(this.predictionModelP.fit(dataSet.states, dataSet.targetPolicies, fittingArgs))
-      await trackLoss(this.predictionModelV.fit(dataSet.states, dataSet.targetValues, fittingArgs))
+      // Train both f(s)->v and g(s,a)->s networks
+      await trackLoss(this.recurrentInferenceModel.fit(dataSet.condRep, dataSet.targetValues, fittingArgs))
+//      await trackLoss(this.predictionModelV.fit(dataSet.states, dataSet.targetValues, fittingArgs))
       await trackLoss(this.dynamicsModelR.fit(dataSet.condRep, dataSet.targetRewards, fittingArgs))
       dataSet.condRep.dispose()
       dataSet.states.dispose()
@@ -261,9 +289,10 @@ export abstract class BaseMuZeroNet {
     // define the probability for each action based on popularity (visits)
     const probs = tf.softmax(tf.tensor1d(policy))
     // select the most popular action
-    const action = tf.multinomial(probs, 1, undefined, false) as tf.Tensor1D
+//    const action = tf.multinomial(probs, 1, undefined, false) as tf.Tensor1D
     // One hot encode action to Tensor2D
-    return tf.cast(tf.oneHot(tf.tensor1d([action.bufferSync().get(0)], 'int32'), this.actionSpaceN), 'float32')
+//    return tf.cast(tf.oneHot(tf.tensor1d([action.bufferSync().get(0)], 'int32'), this.actionSpaceN), 'float32')
+    return probs.expandDims(0)
   }
 
   public inverseRewardTransform (rewardLogits: tf.Tensor): number {

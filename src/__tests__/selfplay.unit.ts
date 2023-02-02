@@ -7,11 +7,13 @@ import { MuZeroNim } from '../muzero/games/nim/nim'
 import { MuZeroNimState } from '../muzero/games/nim/nimstate'
 import { NimNetModel } from '../muzero/games/nim/nimmodel'
 import { MuZeroNet } from '../muzero/networks/fullconnected'
+import {MuZeroConfig} from "../muzero/games/core/config";
 
 describe('Muzero Self Play Unit Test:', () => {
   const factory = new MuZeroNim()
   const model = new NimNetModel()
   const config = factory.config()
+  const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
   test('Check the Nim Game', async () => {
     const state = factory.reset()
     expect(state.board.toString()).toEqual('1,2,3')
@@ -44,23 +46,12 @@ describe('Muzero Self Play Unit Test:', () => {
     expect(factory.serialize(factory.deserialize(factory.serialize(s4)))).toEqual('[1,[0,0,0],[0,8,3,3]]')
   })
   test('Check self play', async () => {
-    const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>({
-      replayBufferSize: 2000,
-      actionSpace: config.actionSpaceSize,
-      tdSteps: config.actionSpaceSize
-    })
-    const sharedStorage = new MuZeroSharedStorage({
-      observationSize: model.observationSize,
-      actionSpaceSize: config.actionSpaceSize
-    })
+    const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
+    const sharedStorage = new MuZeroSharedStorage(conf)
     const network = new MuZeroNet(model.observationSize, config.actionSpaceSize, 0.01)
     await sharedStorage.saveNetwork(1, network)
-    const selfPlay = new MuZeroSelfPlay({
-      selfPlaySteps: 2,
-      actionSpaceSize: config.actionSpaceSize,
-      maxMoves: config.actionSpaceSize,
-      simulations: 100
-    }, factory, model)
+    conf.selfPlaySteps = 2
+    const selfPlay = new MuZeroSelfPlay(conf, factory, model)
     await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     expect(replayBuffer.numPlayedGames).toEqual(2)
   })

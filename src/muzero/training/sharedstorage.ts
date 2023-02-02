@@ -1,6 +1,7 @@
 import { MuZeroNet } from '../networks/fullconnected'
 import { BaseMuZeroNet } from '../networks/network'
 import debugFactory from 'debug'
+import {MuZeroConfig} from "../games/core/config";
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
@@ -16,10 +17,7 @@ export class MuZeroSharedStorage {
    * @param config.actionSpaceSize Length of the action tensors (partial input for the dynamics model g)
    */
   constructor (
-    private readonly config: {
-      observationSize: number
-      actionSpaceSize: number
-    }
+    private readonly config: MuZeroConfig
   ) {
     this.latestNetwork_ = this.uniformNetwork()
     this.maxNetworks = 2
@@ -28,7 +26,7 @@ export class MuZeroSharedStorage {
 
   public uniformNetwork (learningRate?: number): BaseMuZeroNet {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
-    return new MuZeroNet(this.config.observationSize, this.config.actionSpaceSize, learningRate ?? 0)
+    return new MuZeroNet(this.config.observationSize, this.config.actionSpace, learningRate ?? 0)
   }
 
   public latestNetwork (): BaseMuZeroNet {
