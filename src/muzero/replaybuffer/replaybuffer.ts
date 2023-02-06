@@ -77,7 +77,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     this.numPlayedSteps += gameHistory.rootValues.length
     this.totalSamples += gameHistory.rootValues.length
     if (this.numPlayedGames % 25 === 0) {
-      this.storeSavedGames()
+//      this.storeSavedGames()
     }
   }
 
@@ -186,7 +186,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     model: MuZeroModel<State>
   ): void {
     try {
-      const json = fs.readFileSync('./data/games', { encoding: 'utf8' })
+      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
       if (json !== null) {
         this.buffer = new MuZeroGameHistory(environment, model).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
@@ -200,6 +200,6 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
 
   public storeSavedGames (): void {
     const stream = JSON.stringify(this.buffer.map(gh => gh.serialize()))
-    fs.writeFileSync('./data/games', stream, 'utf8')
+    fs.writeFileSync('./data/games.json', stream, 'utf8')
   }
 }

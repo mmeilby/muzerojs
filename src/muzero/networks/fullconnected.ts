@@ -18,7 +18,7 @@ export class MuZeroNet extends BaseMuZeroNet {
     const hs = tf.layers.dense({
       name: 'representation_state_output',
       units: this.hxSize,
-      activation: 'tanh',
+      activation: 'softsign',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
@@ -58,7 +58,7 @@ export class MuZeroNet extends BaseMuZeroNet {
     const gs = tf.layers.dense({
       name: 'dynamics_state_output',
       units: this.hxSize,
-      activation: 'tanh',
+      activation: 'softsign',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false

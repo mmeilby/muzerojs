@@ -119,6 +119,9 @@ export class MCTSNode<State, Action extends Actionwise> {
     this.possibleActionsLeftToExpand_ = possibleActions
   }
 
+  /**
+   * State related to this node
+   */
   get mctsState (): MCTSState<State> {
     return this.mctsState_
   }
@@ -127,10 +130,16 @@ export class MCTSNode<State, Action extends Actionwise> {
     return this.possibleActionsLeftToExpand_
   }
 
+  /**
+   * Identification of player to make a move for this state
+   */
   get player (): number {
     return this.player_
   }
 
+  /**
+   * Action that caused this state - if node is root not action is defined
+   */
   get action (): Action | undefined {
     return this.action_
   }
@@ -139,6 +148,9 @@ export class MCTSNode<State, Action extends Actionwise> {
     return this.children_
   }
 
+  /**
+   * Parent node for this node - if node is root then no parent is defined
+   */
   get parent (): MCTSNode<State, Action> | undefined {
     return this.parent_
   }

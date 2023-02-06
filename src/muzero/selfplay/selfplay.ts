@@ -62,9 +62,11 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network, dataStore)
       const action = this.selectAction(rootNode, gameHistory.historyLength())
+      const recommendedAction = this.env.expertAction(gameHistory.state)
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
       debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
+      debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
     }
     // Since policy and value data are referring to the state before action is committed
     // we need a last set of data for the game history
@@ -107,9 +109,12 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       // If we can make an action for the root node let us descend the tree
       for (let sim = 0; sim < this.config.simulations; sim++) {
         let node = rootNode
+        const debugSearchTree: number[] = []
         while (node.isExpanded() && node.children.length > 0) {
           node = this.selectChild(node, minMaxStats)
+          debugSearchTree.push(node.action?.id ?? -1)
         }
+        debug(`--- MCTS: Simulation: ${sim+1}: ${debugSearchTree.join('->')}`)
         tf.tidy(() => {
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state.
@@ -145,8 +150,9 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private selectAction (rootNode: MCTSNode<State, Action>, moves: number): Action {
     const visitsTable = rootNode.children.map(child => {
       return { action: child.action, visits: child.mctsState.visits }
-    })
+    }).sort((a,b) => a.visits === b.visits ? (Math.random() > 0.5 ? 1 : -1) : b.visits - a.visits)
     let action = 0
+    /*
     if (visitsTable.length > 1) {
       // define the probability for each action based on popularity (visits)
       tf.tidy(() => {
@@ -156,6 +162,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
         action = draw.bufferSync().get(0)
       })
     }
+    */
     return visitsTable[action].action as Action
   }
 
@@ -176,7 +183,12 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   }
 
   /**
-   * ucbScore - The score for a node is based on its value, plus an exploration bonus based on the prior
+   * ucbScore - The score for a node is based on its value, plus an exploration bonus based
+   * on the prior (predicted probability of choosing the action that leads to this node)
+   *    Upper Confidence Bound
+   *    ucb = Qsa[(s,a)] + Ps[s,a] * sqrt(Ns[s]) / (1 + Nsa[(s,a)])
+   * The point of the UCB is to initially prefer actions with high prior probability (P) and low visit count (N),
+   * but asymptotically prefer actions with a high action value (Q).
    * @param parent
    * @param child
    * @param minMaxStats
@@ -192,7 +204,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     const pbCbase = this.config.pbCbase
     const pbCinit = this.config.pbCinit
     const pbC1 = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
-    const pbC2 = Math.sqrt(parent.mctsState.visits) / (child.mctsState.visits + 1)
+    const pbC2 = Math.sqrt(parent.mctsState.visits) / (1 + child.mctsState.visits)
     const priorScore = pbC1 * pbC2 * child.mctsState.prior
     const valueScore = minMaxStats.normalize(child.mctsState.value)
     return priorScore + valueScore

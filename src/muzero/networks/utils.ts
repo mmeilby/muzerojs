@@ -5,6 +5,13 @@ representation of the MuZero or AlphaZero neural networks.
 
 import * as tf from '@tensorflow/tfjs'
 
+export class LogMetrics {
+  constructor(
+    public loss: number,
+    public accuracy: number
+  ) {}
+}
+
 /*
 export function safeL2norm(x: tf.Tensor, epsilon=1e-5) {
   // Compute L2-Norm with an epsilon term for numerical stability (TODO Open github issue for this?) """
