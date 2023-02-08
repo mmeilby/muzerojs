@@ -64,8 +64,20 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     }
   }
 
+  /**
+   * Return reward for current state
+   * The returned reward would be
+   *    1 - for a winning situation
+   *    0 - for no current outcome
+   *    -1 - for a lost situation
+   * @param state
+   * @param player
+   */
   public reward (state: MuZeroNimState, player: number): number {
-    return this.haveWinner(state, player)
+    const winner = this.haveWinner(state)
+    // haveWinner returns the player id of a winning party,
+    // so we have to switch the sign if player id is negative
+    return winner === 0 ? 0 : winner * player
   }
 
   public terminal (state: MuZeroNimState): boolean {

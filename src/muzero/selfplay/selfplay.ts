@@ -7,9 +7,9 @@ import { MuZeroEnvironment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node'
 import { TranspositionTable, DataGateway } from './data-store'
 import debugFactory from 'debug'
-import { BaseMuZeroNet } from '../networks/network'
 import { NetworkOutput } from '../networks/networkoutput'
 import {MuZeroConfig} from "../games/core/config";
+import {MuZeroNetwork} from "../networks/nnet";
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
 const { jStat } = require('jstat')
@@ -55,7 +55,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param network
    * @private
    */
-  private playGame (network: BaseMuZeroNet): MuZeroGameHistory<State, Action> {
+  private playGame (network: MuZeroNetwork<Action>): MuZeroGameHistory<State, Action> {
     const dataStore = new TranspositionTable<State>(new Map())
     const gameHistory = new MuZeroGameHistory(this.env, this.model)
     // Play a game from start to end, register target data on the fly for the game history
@@ -82,20 +82,19 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * To decide on an action, we run N simulations, always starting at the root of
    * the search tree and traversing the tree according to the UCB formula until we
    * reach a leaf node.
-   * @param rootNode
    * @param gameHistory
    * @param network
    * @param dataStore
    * @private
    */
-  private runMCTS (gameHistory: MuZeroGameHistory<State, Action>, network: BaseMuZeroNet, dataStore: DataGateway<State>): MCTSNode<State, Action> {
+  private runMCTS (gameHistory: MuZeroGameHistory<State, Action>, network: MuZeroNetwork<Action>, dataStore: DataGateway<State>): MCTSNode<State, Action> {
     const minMaxStats = new Normalizer()
     const rootNode: MCTSNode<State, Action> = this.createRootNode(gameHistory.state, dataStore)
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
       const currentObservation = gameHistory.makeImage(-1)
-      const networkOutput = network.initialInference(tf.tensor2d(currentObservation))
+      const networkOutput = network.initialInference(currentObservation)
 //      debug(`Network output: ${JSON.stringify(networkOutput)}`)
       this.expandNode(rootNode, networkOutput, dataStore)
     })
@@ -114,14 +113,13 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
           node = this.selectChild(node, minMaxStats)
           debugSearchTree.push(node.action?.id ?? -1)
         }
-        debug(`--- MCTS: Simulation: ${sim+1}: ${debugSearchTree.join('->')}`)
+        debug(`--- MCTS: Simulation: ${sim+1}: ${debugSearchTree.join('->')} value=${node.mctsState.prior}`)
         tf.tidy(() => {
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state.
           if (node.parent !== undefined && node.action !== undefined) {
 //            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
-            const hiddenState = tf.tensor2d([node.parent.mctsState.hiddenState])
-            const networkOutput = network.recurrentInference(hiddenState, network.policyTransform(node.action.id))
+            const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, node.action)
             this.expandNode(node, networkOutput, dataStore)
             this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
           } else {

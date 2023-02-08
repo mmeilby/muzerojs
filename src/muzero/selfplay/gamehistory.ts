@@ -2,6 +2,7 @@ import { MuZeroEnvironment } from '../games/core/environment'
 import { Actionwise, MCTSNode, Playerwise } from './entities'
 import { MuZeroModel } from '../games/core/model'
 import { MuZeroTarget } from '../replaybuffer/target'
+import {MuZeroObservation} from "../networks/nnet";
 
 interface MuZeroGameHistoryObject {
   actionHistory: number[]
@@ -15,7 +16,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   private readonly model: MuZeroModel<State>
   private _state: State
   // A list of observation input tensors for the representation network at each turn of the game
-  private readonly observationHistory: number[][][]
+  private readonly observationHistory: MuZeroObservation[]
   // A list of actions taken at each turn of the game
   public readonly actionHistory: Action[]
   // A list of true rewards received at each turn of the game
@@ -78,7 +79,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     this.rootValues.push(rootNode.mctsState.value)
   }
 
-  public makeImage (stateIndex: number): number[][] {
+  public makeImage (stateIndex: number): MuZeroObservation {
     // Game specific feature planes.
     // Convert to positive index
     const index = stateIndex % this.observationHistory.length

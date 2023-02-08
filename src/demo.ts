@@ -17,7 +17,7 @@ async function run (): Promise<void> {
   const network = await sharedStorage.latestNetwork()
   let state = factory.reset()
   const currentObservation = model.observation(state)
-  let networkOutput = network.initialInference(tf.tensor2d(currentObservation))
+  let networkOutput = network.initialInference(currentObservation)
   while (!factory.terminal(state)) {
     // select the most popular action
     const bestAction = tf.multinomial(networkOutput.policyMap, 1, undefined, false) as tf.Tensor1D
@@ -26,7 +26,7 @@ async function run (): Promise<void> {
     if (legalActions.find(a => a.id === action.id) != null) {
       state = factory.step(state, action)
       debug(`--- Best action: ${action.id} ${state.toString()}`)
-      networkOutput = network.recurrentInference(networkOutput.hiddenState, network.policyTransform(action.id))
+      networkOutput = network.recurrentInference(networkOutput.aHiddenState, action)
     } else {
       let nextBestAction = action
       let nextBestPolicy = 0
@@ -38,7 +38,7 @@ async function run (): Promise<void> {
       })
       state = factory.step(state, nextBestAction)
       debug(`--- Next best (legal) action: ${nextBestAction.id} ${state.toString()} - ${action.id} was invalid - policy: [${networkOutput.policyMap.map(v => v.toFixed(4)).toString()}]`)
-      networkOutput = network.recurrentInference(networkOutput.hiddenState, network.policyTransform(nextBestAction.id))
+      networkOutput = network.recurrentInference(networkOutput.aHiddenState, nextBestAction)
     }
   }
   debug(`--- Done ${state.toString()}`)

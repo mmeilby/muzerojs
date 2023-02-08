@@ -1,13 +1,15 @@
 import { MuZeroModel } from '../core/model'
 import { MuZeroNimState } from './nimstate'
 import { config } from './nimconfig'
+import {MuZeroObservation} from "../../networks/nnet";
+import {MuZeroNetObservation} from "../../networks/network";
 
 export class NimNetModel implements MuZeroModel<MuZeroNimState> {
   get observationSize (): number {
     return config.heaps * config.heapSize
   }
 
-  public observation (state: MuZeroNimState): number[][] {
+  public observation (state: MuZeroNimState): MuZeroObservation {
     const board: number[][] = []
     for (let i = 0; i < config.heaps; i++) {
       const pins: number[] = new Array<number>(config.heapSize).fill(0)
@@ -16,6 +18,6 @@ export class NimNetModel implements MuZeroModel<MuZeroNimState> {
       }
       board.push(pins)
     }
-    return board
+    return new MuZeroNetObservation(board)
   }
 }

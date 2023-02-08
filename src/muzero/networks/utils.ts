@@ -8,7 +8,13 @@ import * as tf from '@tensorflow/tfjs'
 export class LogMetrics {
   constructor(
     public loss: number,
-    public accuracy: number
+    public accuracy: number,
+    public policyLoss: number,
+    public policyAccuracy: number,
+    public valueLoss: number,
+    public valueAccuracy: number,
+    public rewardLoss: number,
+    public rewardAccuracy: number,
   ) {}
 }
 

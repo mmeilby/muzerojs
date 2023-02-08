@@ -1,12 +1,13 @@
-import { MuZeroNet } from '../networks/fullconnected'
-import { BaseMuZeroNet } from '../networks/network'
 import debugFactory from 'debug'
 import {MuZeroConfig} from "../games/core/config";
+import {MuZeroNetwork} from "../networks/nnet";
+import {Actionwise} from "../selfplay/entities";
+import {MuZeroNet} from "../networks/network";
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
 export class MuZeroSharedStorage {
-  private readonly latestNetwork_: BaseMuZeroNet
+  private readonly latestNetwork_: MuZeroNetwork<Actionwise>
   private readonly maxNetworks: number
   public networkCount: number
 
@@ -24,12 +25,13 @@ export class MuZeroSharedStorage {
     this.networkCount = 0
   }
 
-  public uniformNetwork (learningRate?: number): BaseMuZeroNet {
+  public uniformNetwork (learningRate?: number): MuZeroNetwork<Actionwise> {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
     return new MuZeroNet(this.config.observationSize, this.config.actionSpace, learningRate ?? 0)
+    //TODO: Change this to a uniform mocked network
   }
 
-  public latestNetwork (): BaseMuZeroNet {
+  public latestNetwork (): MuZeroNetwork<Actionwise> {
     debug(`Picked the latest network - training step ${this.networkCount}`)
     return this.latestNetwork_
   }
@@ -43,7 +45,7 @@ export class MuZeroSharedStorage {
     }
   }
 
-  public async saveNetwork (step: number, network: BaseMuZeroNet): Promise<void> {
+  public async saveNetwork (step: number, network: MuZeroNetwork<Actionwise>): Promise<void> {
     debug('Saving network')
     await network.save('file://data/')
     network.copyWeights(this.latestNetwork_)
