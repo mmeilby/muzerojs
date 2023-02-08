@@ -389,7 +389,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     return x.squeeze().arraySync() as number[]
   }
 
-  public policyTransform (policy: number): tf.Tensor {
+  private policyTransform (policy: number): tf.Tensor {
     // One hot encode integer actions to Tensor2D
     return tf.oneHot(tf.tensor1d([policy], 'int32'), this.actionSpaceN, 1, 0, 'float32')
 //    const tfPolicy = tf.softmax(onehot)

@@ -7,7 +7,8 @@ import { MuZeroNim } from '../muzero/games/nim/nim'
 import { MuZeroNimState } from '../muzero/games/nim/nimstate'
 import { NimNetModel } from '../muzero/games/nim/nimmodel'
 import { MuZeroConfig } from "../muzero/games/core/config";
-import {MuZeroNet, MuZeroNetObservation} from "../muzero/networks/network";
+import { MuZeroNetObservation } from "../muzero/networks/network";
+import { MuZeroMockedNetwork } from "../muzero/networks/mnetwork";
 
 describe('Muzero Self Play Unit Test:', () => {
   const factory = new MuZeroNim()
@@ -65,7 +66,7 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check self play', async () => {
     const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
     const sharedStorage = new MuZeroSharedStorage(conf)
-    const network = new MuZeroNet(model.observationSize, config.actionSpaceSize, 0.01)
+    const network = new MuZeroMockedNetwork(factory)
     await sharedStorage.saveNetwork(1, network)
     conf.selfPlaySteps = 2
     const selfPlay = new MuZeroSelfPlay(conf, factory, model)

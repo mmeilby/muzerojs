@@ -61,7 +61,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network, dataStore)
-      const action = this.selectAction(rootNode, gameHistory.historyLength())
+      const action = this.selectAction(rootNode)
       const recommendedAction = this.env.expertAction(gameHistory.state)
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
@@ -145,7 +145,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     return new MCTSNode(mctsState, this.env.legalActions(state), state.player)
   }
 
-  private selectAction (rootNode: MCTSNode<State, Action>, moves: number): Action {
+  private selectAction (rootNode: MCTSNode<State, Action>): Action {
     const visitsTable = rootNode.children.map(child => {
       return { action: child.action, visits: child.mctsState.visits }
     }).sort((a,b) => a.visits === b.visits ? (Math.random() > 0.5 ? 1 : -1) : b.visits - a.visits)

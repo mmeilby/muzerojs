@@ -3,6 +3,7 @@ import {MuZeroConfig} from "../games/core/config";
 import {MuZeroNetwork} from "../networks/nnet";
 import {Actionwise} from "../selfplay/entities";
 import {MuZeroNet} from "../networks/network";
+import {MuZeroUniformNetwork} from "../networks/uniform";
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
@@ -20,26 +21,30 @@ export class MuZeroSharedStorage {
   constructor (
     private readonly config: MuZeroConfig
   ) {
-    this.latestNetwork_ = this.uniformNetwork()
+    this.latestNetwork_ = this.initialize()
     this.maxNetworks = 2
-    this.networkCount = 0
+    this.networkCount = -1
   }
 
-  public uniformNetwork (learningRate?: number): MuZeroNetwork<Actionwise> {
+  public initialize (): MuZeroNetwork<Actionwise> {
+    return new MuZeroNet(this.config.observationSize, this.config.actionSpace, this.config.lrInit)
+  }
+
+  public uniformNetwork (): MuZeroNetwork<Actionwise> {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
-    return new MuZeroNet(this.config.observationSize, this.config.actionSpace, learningRate ?? 0)
-    //TODO: Change this to a uniform mocked network
+    return new MuZeroUniformNetwork(this.config.actionSpace)
   }
 
   public latestNetwork (): MuZeroNetwork<Actionwise> {
     debug(`Picked the latest network - training step ${this.networkCount}`)
-    return this.latestNetwork_
+    return this.networkCount >= 0 ? this.latestNetwork_ : this.uniformNetwork()
   }
 
   public async loadNetwork (): Promise<void> {
     try {
       debug('Loading network')
       await this.latestNetwork_.load('file://data/')
+      this.networkCount = 0
     } catch (e) {
       debug(e)
     }
