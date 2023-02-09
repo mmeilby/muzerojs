@@ -52,9 +52,9 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   ) {
     // hidden state size
     this.hxSize = 32
-    this.rewardSupportSize = 10
-    this.valueSupportSize = 10
-    this.hiddenLayerSize = 64
+    this.rewardSupportSize = 0
+    this.valueSupportSize = 0
+    this.hiddenLayerSize = 128
     this.valueScale = 0.25
     this.weightDecay = 0.0001
 
@@ -67,8 +67,8 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     const h = this.h()
     const f = this.f()
     const scale = this.valueScale
-    function valueLoss(multiClassLabels: tf.Tensor, logits: tf.Tensor, weights?: tf.Tensor, labelSmoothing?: number, reduction?: tf.Reduction) {
-      return tf.losses.sigmoidCrossEntropy(multiClassLabels, logits, tf.scalar(scale), labelSmoothing, reduction)
+    function valueLoss(labels: tf.Tensor, predictions: tf.Tensor) {
+      return tf.losses.meanSquaredError(labels, predictions, tf.scalar(scale))
     }
 
     const representationLayer = h.s.apply(h.sh.apply(observationInput))
@@ -87,7 +87,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
         prediction_value_output: valueLoss,
-        representation_state_output: () => tf.scalar(0)
+        representation_state_output: tf.losses.absoluteDifference
       },
       metrics: ['acc']
     })
@@ -113,8 +113,8 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
         prediction_value_output: valueLoss,
-        dynamics_reward_output: valueLoss,
-        dynamics_state_output: () => tf.scalar(0)
+        dynamics_reward_output: tf.losses.meanSquaredError,
+        dynamics_state_output: tf.losses.absoluteDifference
       },
       metrics: ['acc']
     })
@@ -136,7 +136,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     const hs = tf.layers.dense({
       name: 'representation_state_output',
       units: this.hxSize,
-      activation: 'softsign',
+      activation: 'linear',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
@@ -151,8 +151,8 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   private f (): { vh: tf.layers.Layer, v: tf.layers.Layer, ph: tf.layers.Layer, p: tf.layers.Layer } {
     const fv = tf.layers.dense({
       name: 'prediction_value_output',
-      units: this.valueSupportSize * 2 + 1,
-      activation: 'linear', // softmax?
+      units: 1,
+      activation: 'tanh',
       kernelInitializer: 'zeros',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
@@ -178,15 +178,15 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     const gs = tf.layers.dense({
       name: 'dynamics_state_output',
       units: this.hxSize,
-      activation: 'softsign',
+      activation: 'linear',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
     })
     const gr = tf.layers.dense({
       name: 'dynamics_reward_output',
-      units: this.rewardSupportSize * 2 + 1,
-      activation: 'linear', // softmax?
+      units: 1,
+      activation: 'tanh',
       kernelInitializer: 'zeros',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false

@@ -17,7 +17,8 @@ async function run (): Promise<void> {
   const model = new NimNetModel()
   const config = factory.config()
   const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
-  conf.lrInit = 0.01
+  conf.lrInit = 0.1
+  conf.selfPlaySteps = 5000
   const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
   replayBuffer.loadSavedGames(factory, model)
   const sharedStorage = new MuZeroSharedStorage(conf)

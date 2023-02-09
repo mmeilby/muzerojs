@@ -184,7 +184,13 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * ucbScore - The score for a node is based on its value, plus an exploration bonus based
    * on the prior (predicted probability of choosing the action that leads to this node)
    *    Upper Confidence Bound
-   *    ucb = Qsa[(s,a)] + Ps[s,a] * sqrt(Ns[s]) / (1 + Nsa[(s,a)])
+   *    U(s,a) = Q(s,a) + c * P(s,a) * sqrt(N(s)) / (1 + N(s,a))
+   *    Q(s,a): the expected reward for taking action a from state s, i.e. the Q values
+   *    N(s,a): the number of times we took action a from state s across simulation
+   *    N(s): the sum of all visits at state s across simulation
+   *    P(s,a): the initial estimate of taking an action a from the state s according to the
+   *    policy returned by the current neural network.
+   *    c is a hyperparameter that controls the degree of exploration
    * The point of the UCB is to initially prefer actions with high prior probability (P) and low visit count (N),
    * but asymptotically prefer actions with a high action value (Q).
    * @param parent
@@ -201,9 +207,9 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     }
     const pbCbase = this.config.pbCbase
     const pbCinit = this.config.pbCinit
-    const pbC1 = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
+    const c = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
     const pbC2 = Math.sqrt(parent.mctsState.visits) / (1 + child.mctsState.visits)
-    const priorScore = pbC1 * pbC2 * child.mctsState.prior
+    const priorScore = c * pbC2 * child.mctsState.prior
     const valueScore = minMaxStats.normalize(child.mctsState.value)
     return priorScore + valueScore
   }
