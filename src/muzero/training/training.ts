@@ -1,18 +1,17 @@
-import {MuZeroSharedStorage} from './sharedstorage'
-import {MuZeroReplayBuffer} from '../replaybuffer/replaybuffer'
+import { MuZeroSharedStorage } from './sharedstorage'
+import { MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
 import * as tf from '@tensorflow/tfjs-node'
 
-import {Actionwise, Playerwise} from '../selfplay/entities'
+import { Actionwise, Playerwise } from '../selfplay/entities'
 
 import debugFactory from 'debug'
-import {MuZeroConfig} from "../games/core/config";
+import { MuZeroConfig } from '../games/core/config'
 
 const debug = debugFactory('muzero:training:module')
 
 export class MuZeroTraining<State extends Playerwise, Action extends Actionwise> {
-
   constructor (
-      private readonly config: MuZeroConfig
+    private readonly config: MuZeroConfig
   ) {}
 
   public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
@@ -28,7 +27,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
         await storage.saveNetwork(step, network)
       }
       const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
-      const [ losses, accuracy ] = await network.trainInference(batchSamples)
+      const [losses, accuracy] = await network.trainInference(batchSamples)
       debug(`Mean loss: step #${step} ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
       if (tf.memory().numTensors - useBaseline > 0) {
         debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline}`)

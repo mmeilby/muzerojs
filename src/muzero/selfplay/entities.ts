@@ -1,4 +1,4 @@
-import {MuZeroHiddenState} from "../networks/nnet";
+import { MuZeroHiddenState } from '../networks/nnet'
 
 /**
  * `Playerwise` is an interface made to extend generic `State` objects used in

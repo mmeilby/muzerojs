@@ -2,7 +2,7 @@ import { MuZeroEnvironment } from '../games/core/environment'
 import { Actionwise, MCTSNode, Playerwise } from './entities'
 import { MuZeroModel } from '../games/core/model'
 import { MuZeroTarget } from '../replaybuffer/target'
-import {MuZeroObservation} from "../networks/nnet";
+import { MuZeroObservation } from '../networks/nnet'
 
 interface MuZeroGameHistoryObject {
   actionHistory: number[]

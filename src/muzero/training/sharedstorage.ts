@@ -1,9 +1,9 @@
 import debugFactory from 'debug'
-import {MuZeroConfig} from "../games/core/config";
-import {MuZeroNetwork} from "../networks/nnet";
-import {Actionwise} from "../selfplay/entities";
-import {MuZeroNet} from "../networks/network";
-import {MuZeroUniformNetwork} from "../networks/uniform";
+import { MuZeroConfig } from '../games/core/config'
+import { MuZeroNetwork } from '../networks/nnet'
+import { Actionwise } from '../selfplay/entities'
+import { MuZeroNet } from '../networks/network'
+import { MuZeroUniformNetwork } from '../networks/uniform'
 
 const debug = debugFactory('muzero:sharedstorage:module')
 

@@ -1,4 +1,4 @@
-import {MuZeroHiddenState} from "./nnet";
+import { MuZeroHiddenState } from './nnet'
 
 export class NetworkOutput {
   constructor (

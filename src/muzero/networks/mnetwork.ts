@@ -1,19 +1,19 @@
 import * as tf from '@tensorflow/tfjs-node'
-import {NetworkOutput} from "./networkoutput";
-import {MuZeroBatch} from "../replaybuffer/batch";
-import {Actionwise, Playerwise} from "../selfplay/entities";
-import {MuZeroHiddenState, MuZeroNetwork, MuZeroObservation} from "./nnet";
-import {MuZeroEnvironment} from "../games/core/environment";
+import { NetworkOutput } from './networkoutput'
+import { MuZeroBatch } from '../replaybuffer/batch'
+import { Actionwise, Playerwise } from '../selfplay/entities'
+import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
+import { MuZeroEnvironment } from '../games/core/environment'
 
 class MuZeroMockedObservation<State> implements MuZeroObservation {
-  constructor(
-      public state: State
+  constructor (
+    public state: State
   ) {}
 }
 
 class MuZeroMockedHiddenState<State> implements MuZeroHiddenState {
-  constructor(
-      public state: State
+  constructor (
+    public state: State
   ) {}
 }
 
@@ -21,8 +21,8 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
   // Length of the action tensors
   protected readonly actionSpaceN: number
 
-  constructor(
-      private readonly env: MuZeroEnvironment<State, Action>,
+  constructor (
+    private readonly env: MuZeroEnvironment<State, Action>
   ) {
     this.actionSpaceN = env.config().actionSpaceSize
   }
@@ -50,19 +50,23 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
 
-  public async trainInference (samples: MuZeroBatch<Actionwise>[]): Promise<number[]> {
+  public async trainInference (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
     // Return the perfect loss vector
-    return Promise.resolve(samples.map(() => 0))
+    return await Promise.resolve(samples.map(() => 0))
   }
+
   public async save (path: string): Promise<void> {
     // No reason for saving anything from a mocked network
   }
+
   public async load (path: string): Promise<void> {
     // We can't load any data to a mocked network - ignore
   }
+
   public copyWeights (network: MuZeroNetwork<Action>): void {
     // A mocked network does not have any data to copy - leave the target network untouched
   }
+
   private policyTransform (policy: number): tf.Tensor {
     return tf.oneHot(tf.tensor1d([policy], 'int32'), this.actionSpaceN, 1, 0, 'float32')
   }

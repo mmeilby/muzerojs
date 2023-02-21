@@ -1,24 +1,24 @@
 import * as tf from '@tensorflow/tfjs-node'
-import {LogMetrics, scalarToSupport, supportToScalar} from './utils'
+import { LogMetrics, scalarToSupport, supportToScalar } from './utils'
 import { NetworkOutput } from './networkoutput'
-import {MuZeroBatch} from "../replaybuffer/batch";
-import {Actionwise} from "../selfplay/entities";
-import {Logs} from "@tensorflow/tfjs-node";
-import {MuZeroHiddenState, MuZeroNetwork, MuZeroObservation} from "./nnet";
+import { MuZeroBatch } from '../replaybuffer/batch'
+import { Actionwise } from '../selfplay/entities'
+import { Logs } from '@tensorflow/tfjs-node'
+import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
 import debugFactory from 'debug'
-import {MuZeroAction} from "../games/core/action";
+import { MuZeroAction } from '../games/core/action'
 
 const debug = debugFactory('muzero:network:debug')
 
 export class MuZeroNetObservation implements MuZeroObservation {
-  constructor(
-      public state: number[][]
+  constructor (
+    public state: number[][]
   ) {}
 }
 
 class MuZeroNetHiddenState implements MuZeroHiddenState {
-  constructor(
-      public state: number[]
+  constructor (
+    public state: number[]
   ) {}
 }
 
@@ -40,15 +40,15 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   // L2 weights regularization
   protected readonly weightDecay: number
 
-  private initialInferenceModel: tf.LayersModel
-  private recurrentInferenceModel: tf.LayersModel
+  private readonly initialInferenceModel: tf.LayersModel
+  private readonly recurrentInferenceModel: tf.LayersModel
 
   private readonly logDir: string
 
   constructor (
-      inputSize: number,
-      actionSpace: number,
-      learningRate: number
+    inputSize: number,
+    actionSpace: number,
+    learningRate: number
   ) {
     // hidden state size
     this.hxSize = 32
@@ -67,7 +67,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     const h = this.h()
     const f = this.f()
     const scale = this.valueScale
-    function valueLoss(labels: tf.Tensor, predictions: tf.Tensor) {
+    function valueLoss (labels: tf.Tensor, predictions: tf.Tensor) {
       return tf.losses.meanSquaredError(labels, predictions, tf.scalar(scale))
     }
 
@@ -122,8 +122,8 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
 
   private makeHiddenLayer (name: string, units: number): tf.layers.Layer {
     return tf.layers.dense({
-      name: name,
-      units: units,
+      name,
+      units,
       activation: 'relu',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
@@ -206,7 +206,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
    */
   public initialInference (obs: MuZeroNetObservation): NetworkOutput {
     const observation = tf.tensor2d(obs.state)
-    const [ tfPolicy, tfValue, tfHiddenState ] = this.initialInferenceModel.predict(observation.reshape([1, -1])) as tf.Tensor[]
+    const [tfPolicy, tfValue, tfHiddenState] = this.initialInferenceModel.predict(observation.reshape([1, -1])) as tf.Tensor[]
     const hiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
     const reward = 0
     const policy = this.inversePolicyTransform(tfPolicy)
@@ -222,7 +222,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
    */
   public recurrentInference (hiddenState: MuZeroNetHiddenState, action: MuZeroAction): NetworkOutput {
     const conditionedHiddenState = tf.concat([tf.tensor2d([hiddenState.state]), this.policyTransform(action.id)], 1)
-    const [ tfPolicy, tfValue, tfReward, tfNewHiddenState ] = this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
+    const [tfPolicy, tfValue, tfReward, tfNewHiddenState] = this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
     const newHiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfNewHiddenState.reshape([-1]).arraySync() as number[])
     const reward = this.inverseRewardTransform(tfReward)
     const policy = this.inversePolicyTransform(tfPolicy)
@@ -234,11 +234,11 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
    * trainInference
    * @param samples
    */
-  public async trainInference (samples: MuZeroBatch<Actionwise>[]): Promise<number[]> {
+  public async trainInference (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
     const masterLog: LogMetrics[] = []
-//    const metrics: Map<string, LogMetrics[]> = new Map<string, LogMetrics[]>([
-//        ['policy', []], ['value', []], ['reward', []]
-//    ])
+    //    const metrics: Map<string, LogMetrics[]> = new Map<string, LogMetrics[]>([
+    //        ['policy', []], ['value', []], ['reward', []]
+    //    ])
     const onBatchEnd = async (batch: number, logs?: Logs): Promise<void> => {
       /*
       const meanPolicy = tf.tidy(() => tf.mean(tf.tensor1d((logs["prediction_policy_output_loss"] ?? [0]) as number[])))
@@ -260,19 +260,19 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
       const meanAcc = tf.tidy(() => tf.mean(tf.tensor1d([
         logs?.prediction_policy_output_acc ?? 1,
         logs?.prediction_value_output_acc ?? 1,
-        logs?.dynamics_reward_output_acc ?? 1,
-//            logs?.dynamics_state_output_acc ?? 1,
-//            logs?.representation_state_output_acc ?? 1,
+        logs?.dynamics_reward_output_acc ?? 1
+        //            logs?.dynamics_state_output_acc ?? 1,
+        //            logs?.representation_state_output_acc ?? 1,
       ])).bufferSync().get(0))
       masterLog.push(new LogMetrics(
-          logs?.loss ?? 0,
-          meanAcc,
-          logs?.prediction_policy_output_loss ?? 0,
-          logs?.prediction_policy_output_acc ?? 1,
-          logs?.prediction_value_output_loss ?? 0,
-          logs?.prediction_value_output_acc ?? 1,
-          logs?.dynamics_reward_output_loss ?? 0,
-          logs?.dynamics_reward_output_acc ?? 1))
+        logs?.loss ?? 0,
+        meanAcc,
+        logs?.prediction_policy_output_loss ?? 0,
+        logs?.prediction_policy_output_acc ?? 1,
+        logs?.prediction_value_output_loss ?? 0,
+        logs?.prediction_value_output_acc ?? 1,
+        logs?.dynamics_reward_output_loss ?? 0,
+        logs?.dynamics_reward_output_acc ?? 1))
     }
     /*
     const fittingArgs = {
@@ -295,19 +295,19 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     const targetValues = tf.tidy(() => tf.concat(initialTargets.map(target => this.valueTransform(target.value)), 0))
     const states = tf.tidy(() => (this.initialInferenceModel.predict(observations) as tf.Tensor[])[2])
     await this.initialInferenceModel.fit(
-        observations,
-        {
-          prediction_policy_output: targetPolicies,
-          prediction_value_output: targetValues,
-          representation_state_output: states
-        },
-        {
-          batchSize: 16,
-          epochs: 1,
-          verbose: 0,
-          shuffle: true,
-          callbacks: { onBatchEnd: onBatchEnd }
-        }
+      observations,
+      {
+        prediction_policy_output: targetPolicies,
+        prediction_value_output: targetValues,
+        representation_state_output: states
+      },
+      {
+        batchSize: 16,
+        epochs: 1,
+        verbose: 0,
+        shuffle: true,
+        callbacks: { onBatchEnd }
+      }
     )
     observations.dispose()
     targetPolicies.dispose()
@@ -328,9 +328,9 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
       return {
         condRep: creps,
         states: tf.concat(hiddenStates, 0),
-        targetPolicies: targetPolicies,
-        targetValues: targetValues,
-        targetRewards: targetRewards
+        targetPolicies,
+        targetValues,
+        targetRewards
       }
     }))
     states.dispose()
@@ -348,20 +348,20 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     }
     debug(`Training recurrent batch of size=${condReps.shape[0]}`)
     await this.recurrentInferenceModel.fit(
-        condReps,
-        {
-          prediction_policy_output: rTargetPolicies,
-          prediction_value_output: rTargetValues,
-          dynamics_reward_output: rTargetRewards,
-          dynamics_state_output: rStates
-        },
-        {
-          batchSize: 16,
-          epochs: 1,
-          verbose: 0,
-          shuffle: true,
-          callbacks: { onBatchEnd: onBatchEnd }
-        }
+      condReps,
+      {
+        prediction_policy_output: rTargetPolicies,
+        prediction_value_output: rTargetValues,
+        dynamics_reward_output: rTargetRewards,
+        dynamics_state_output: rStates
+      },
+      {
+        batchSize: 16,
+        epochs: 1,
+        verbose: 0,
+        shuffle: true,
+        callbacks: { onBatchEnd }
+      }
     )
     condReps.dispose()
     rTargetPolicies.dispose()
@@ -370,9 +370,10 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     rStates.dispose()
     const acc = tf.tidy(() => tf.mean(tf.tensor1d(masterLog.map(lm => lm.accuracy))).bufferSync().get(0))
     const loss = tf.tidy(() => tf.mean(tf.tensor1d(masterLog.map(lm => lm.loss))).bufferSync().get(0))
-    return [ loss, acc ]
+    return [loss, acc]
   }
-/*
+
+  /*
   private lossReward (targetReward: number, result: tf.Tensor): tf.Scalar {
     return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result).asScalar()
   }
@@ -392,9 +393,9 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   private policyTransform (policy: number): tf.Tensor {
     // One hot encode integer actions to Tensor2D
     return tf.oneHot(tf.tensor1d([policy], 'int32'), this.actionSpaceN, 1, 0, 'float32')
-//    const tfPolicy = tf.softmax(onehot)
-//    debug(`PolicyTransform: oneHot=${onehot.toString()}, policy=${tfPolicy.toString()}`)
-//    return tfPolicy
+    //    const tfPolicy = tf.softmax(onehot)
+    //    debug(`PolicyTransform: oneHot=${onehot.toString()}, policy=${tfPolicy.toString()}`)
+    //    return tfPolicy
   }
 
   private policyPredict (policy: number[]): tf.Tensor {
@@ -409,7 +410,8 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   private inverseValueTransform (valueLogits: tf.Tensor): number {
     return supportToScalar(valueLogits, this.valueSupportSize)[0]
   }
-/*
+
+  /*
   private rewardTransform (reward: number): tf.Tensor {
     return scalarToSupport([reward], this.rewardSupportSize)
   }
@@ -421,7 +423,7 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
   public async save (path: string): Promise<void> {
     await Promise.all([
       this.initialInferenceModel.save(path + 'ii'),
-      this.recurrentInferenceModel.save(path + 'ri'),
+      this.recurrentInferenceModel.save(path + 'ri')
     ])
   }
 
@@ -429,10 +431,10 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     try {
       const [
         initialInference,
-        recurrentInference,
+        recurrentInference
       ] = await Promise.all([
         tf.loadLayersModel(path + 'ii/model.json'),
-        tf.loadLayersModel(path + 'ri/model.json'),
+        tf.loadLayersModel(path + 'ri/model.json')
       ])
       this.initialInferenceModel.setWeights(initialInference.getWeights())
       this.recurrentInferenceModel.setWeights(recurrentInference.getWeights())

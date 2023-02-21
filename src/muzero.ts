@@ -6,9 +6,9 @@ import { MuZeroNim } from './muzero/games/nim/nim'
 import { MuZeroNimState } from './muzero/games/nim/nimstate'
 import { NimNetModel } from './muzero/games/nim/nimmodel'
 import { MuZeroTraining } from './muzero/training/training'
-import * as tf from "@tensorflow/tfjs-node";
+import * as tf from '@tensorflow/tfjs-node'
 import debugFactory from 'debug'
-import {MuZeroConfig} from "./muzero/games/core/config";
+import { MuZeroConfig } from './muzero/games/core/config'
 
 const debug = debugFactory('muzero:muzero:debug')
 

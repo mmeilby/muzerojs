@@ -1,5 +1,5 @@
 import { MuZeroTarget } from './target'
-import {MuZeroObservation} from "../networks/nnet";
+import { MuZeroObservation } from '../networks/nnet'
 
 export class MuZeroBatch<Action> {
   constructor (

@@ -4,7 +4,7 @@ import { NimNetModel } from './muzero/games/nim/nimmodel'
 import { MuZeroAction } from './muzero/games/core/action'
 import debugFactory from 'debug'
 import * as tf from '@tensorflow/tfjs-node'
-import {MuZeroConfig} from "./muzero/games/core/config";
+import { MuZeroConfig } from './muzero/games/core/config'
 
 const debug = debugFactory('muzero:demo:play ')
 

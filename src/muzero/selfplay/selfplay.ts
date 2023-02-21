@@ -8,8 +8,8 @@ import * as tf from '@tensorflow/tfjs-node'
 import { TranspositionTable, DataGateway } from './data-store'
 import debugFactory from 'debug'
 import { NetworkOutput } from '../networks/networkoutput'
-import {MuZeroConfig} from "../games/core/config";
-import {MuZeroNetwork} from "../networks/nnet";
+import { MuZeroConfig } from '../games/core/config'
+import { MuZeroNetwork } from '../networks/nnet'
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
 const { jStat } = require('jstat')
@@ -95,7 +95,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       // obtain a hidden state given the current observation.
       const currentObservation = gameHistory.makeImage(-1)
       const networkOutput = network.initialInference(currentObservation)
-//      debug(`Network output: ${JSON.stringify(networkOutput)}`)
+      //      debug(`Network output: ${JSON.stringify(networkOutput)}`)
       this.expandNode(rootNode, networkOutput, dataStore)
     })
     // We also need to add exploration noise to the root node actions.
@@ -113,12 +113,12 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
           node = this.selectChild(node, minMaxStats)
           debugSearchTree.push(node.action?.id ?? -1)
         }
-        debug(`--- MCTS: Simulation: ${sim+1}: ${debugSearchTree.join('->')} value=${node.mctsState.prior}`)
+        debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.mctsState.prior}`)
         tf.tidy(() => {
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state.
           if (node.parent !== undefined && node.action !== undefined) {
-//            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
+            //            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
             const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, node.action)
             this.expandNode(node, networkOutput, dataStore)
             this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
@@ -148,8 +148,8 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private selectAction (rootNode: MCTSNode<State, Action>): Action {
     const visitsTable = rootNode.children.map(child => {
       return { action: child.action, visits: child.mctsState.visits }
-    }).sort((a,b) => a.visits === b.visits ? (Math.random() > 0.5 ? 1 : -1) : b.visits - a.visits)
-    let action = 0
+    }).sort((a, b) => a.visits === b.visits ? (Math.random() > 0.5 ? 1 : -1) : b.visits - a.visits)
+    const action = 0
     /*
     if (visitsTable.length > 1) {
       // define the probability for each action based on popularity (visits)

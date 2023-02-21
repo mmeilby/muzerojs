@@ -1,8 +1,8 @@
 import { MuZeroModel } from '../core/model'
 import { MuZeroNimState } from './nimstate'
 import { config } from './nimconfig'
-import {MuZeroObservation} from "../../networks/nnet";
-import {MuZeroNetObservation} from "../../networks/network";
+import { MuZeroObservation } from '../../networks/nnet'
+import { MuZeroNetObservation } from '../../networks/network'
 
 export class NimNetModel implements MuZeroModel<MuZeroNimState> {
   get observationSize (): number {
