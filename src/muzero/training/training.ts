@@ -14,7 +14,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
     private readonly config: MuZeroConfig
   ) {}
 
-  public async trainNetwork (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
+  public async trainNetwork (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
     // Get a private copy of a new untrained network
     const network = storage.initialize()
     // Update the copy with the weights of a potentially loaded network

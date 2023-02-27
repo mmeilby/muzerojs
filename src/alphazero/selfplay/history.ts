@@ -2,14 +2,14 @@ import { Statewise } from '../games/core/statewise'
 import { Actionwise } from '../games/core/actionwise'
 
 export class HistoryObject<State extends Statewise, Action extends Actionwise> {
-  // Policy for the state
+  // Policy for state before committing action (action should be chosen from one of the highest probabilities in policy)
   private pi_: number[]
-  // Reward achieved for this game - polarized for the current player
+  // Reward achieved for this game when playing action at state - polarized for the first player
   private value_: number
 
   /**
      * Create a game history object
-     * @param state_ The state that was the origin of this game move
+     * @param state_ The state that was the origin of game move
      * @param action_ The action that was chosen as the best from the policy
      */
   constructor (

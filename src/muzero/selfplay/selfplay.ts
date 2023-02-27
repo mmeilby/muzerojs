@@ -34,7 +34,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param storage
    * @param replayBuffer
    */
-  public async runSelfPlay (storage: MuZeroSharedStorage, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
+  public async runSelfPlay (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
     debug(`Self play initiated - running ${this.config.selfPlaySteps} steps`)
     for (let sim = 0; sim < this.config.selfPlaySteps; sim++) {
       const network = storage.latestNetwork()

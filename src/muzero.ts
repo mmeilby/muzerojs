@@ -21,9 +21,9 @@ async function run (): Promise<void> {
   conf.selfPlaySteps = 5000
   const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
   replayBuffer.loadSavedGames(factory, model)
-  const sharedStorage = new MuZeroSharedStorage(conf)
+  const sharedStorage = new MuZeroSharedStorage<MuZeroAction>(conf)
   await sharedStorage.loadNetwork()
-  const selfPlay = new MuZeroSelfPlay(conf, factory, model)
+  const selfPlay = new MuZeroSelfPlay<MuZeroNimState, MuZeroAction>(conf, factory, model)
   const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>(conf)
   debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   await Promise.all([

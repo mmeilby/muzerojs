@@ -22,11 +22,11 @@ async function run (): Promise<void> {
   conf.lrInit = 0.001
   conf.epochs = 100
   conf.temperatureThreshold = 15
-  conf.networkUpdateThreshold = 0
+  conf.networkUpdateThreshold = 0.5
   conf.numIterations = 1000
   conf.simulations = 25
   conf.numGames = 40
-  conf.trainingSteps = 5
+  conf.trainingSteps = 1
   /*
   const replayBuffer = new ReplayBuffer<NimState, NimAction>(conf)
   replayBuffer.loadSavedGames(factory, model)

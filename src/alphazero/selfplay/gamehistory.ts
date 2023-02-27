@@ -6,12 +6,12 @@ import { Actionwise } from '../games/core/actionwise'
 import { Statewise } from '../games/core/statewise'
 import { HistoryObject } from './history'
 
+import debugFactory from 'debug'
+const debug = debugFactory('alphazero:gamehistory:module')
+
 interface GameHistoryObject {
-  actionHistory: number[]
-  childVisits: number[][]
-  rootValues: number[]
-  priorities: number[]
-  gamePriority: number
+  actions: number[]
+  pis: number[][]
 }
 
 export class GameHistory<State extends Statewise, Action extends Actionwise> {
@@ -66,17 +66,21 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
     return state
   }
 
-  public storeSearchStatistics (pi: number[], value: number): void {
+  public storeSearchStatistics (pi: number[]): void {
     const historyObject = this.history.at(-1)
     if (historyObject !== undefined) {
       historyObject.pi = pi
-      historyObject.value = value
+    } else {
+      throw new Error(`No game step saved for this game to update pi`)
     }
   }
 
   public updateRewards (): void {
+    // Get player id for player to play when game is over
     const player = this._state.player
-    const reward = this.environment.reward(this._state, player) * (player !== 1 ? -1 : 1)
+    // As player with id=1 always start, get the reward from player 1's perspective
+    const reward = this.environment.reward(this._state, 1)
+    // Produce the expected reward seen from each player's perspective
     this.history.forEach((historyObject, i) => {
       historyObject.value = reward * Math.pow(-1, i)
     })
@@ -166,15 +170,18 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
   public deserialize (stream: string): Array<GameHistory<State, Action>> {
     const games: Array<GameHistory<State, Action>> = []
     const objects: GameHistoryObject[] = JSON.parse(stream)
-    objects.forEach((object, i) => {
+    objects.forEach(object => {
       const game = new GameHistory(this.environment, this.model)
-      object.actionHistory.forEach(oAction => {
+      object.actions.forEach((oAction, i) => {
         const action = game.legalActions().find(a => a.id === oAction)
         if (action !== undefined) {
           game.apply(action)
-          game.storeSearchStatistics(object.childVisits.at(i) ?? [], object.rootValues.at(i) ?? 0)
+          game.storeSearchStatistics(object.pis[i])
+        } else {
+          throw new Error(`Action is not allowed at the current state: ${oAction} (${this.environment.actionToString(oAction)}) STATE: ${this.environment.toString(game.state)}`)
         }
       })
+      game.updateRewards()
       games.push(game)
     })
     return games
@@ -182,11 +189,8 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
 
   public serialize (): GameHistoryObject {
     return {
-      actionHistory: this.history.map(h => h.action.id),
-      rootValues: this.history.map(h => h.value),
-      childVisits: this.history.map(h => h.pi),
-      priorities: [],
-      gamePriority: 0
+      actions: this.history.map(h => h.action.id),
+      pis: this.history.map(h => h.pi)
     }
   }
 }

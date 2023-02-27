@@ -65,8 +65,8 @@ describe('Muzero Self Play Unit Test:', () => {
   })
   test('Check self play', async () => {
     const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
-    const sharedStorage = new MuZeroSharedStorage(conf)
-    const network = new MuZeroMockedNetwork(factory)
+    const sharedStorage = new MuZeroSharedStorage<MuZeroAction>(conf)
+    const network = new MuZeroMockedNetwork<MuZeroNimState, MuZeroAction>(factory)
     await sharedStorage.saveNetwork(1, network)
     conf.selfPlaySteps = 2
     const selfPlay = new MuZeroSelfPlay(conf, factory, model)

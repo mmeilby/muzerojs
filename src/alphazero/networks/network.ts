@@ -1,11 +1,10 @@
 import * as tf from '@tensorflow/tfjs-node'
-import { scalarToSupport, supportToScalar } from './utils'
-import { NetworkOutput } from './networkoutput'
-import { Batch } from '../replaybuffer/batch'
-import { Network, Observation } from './nnet'
-import { Actionwise } from '../games/core/actionwise'
+import {NetworkOutput} from './networkoutput'
+import {Batch} from '../replaybuffer/batch'
+import {Network, Observation} from './nnet'
+import {Actionwise} from '../games/core/actionwise'
 import debugFactory from 'debug'
-import { Config } from '../games/core/config'
+import {Config} from '../games/core/config'
 
 const debug = debugFactory('alphazero:network:debug')
 
@@ -48,9 +47,10 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
 
     this.logDir = './logs/alphazero'
 
-    const channels = 512
+    const channels = 64
     const dropout = 0.3
     const observationInput = tf.input({ shape: config.observationSize, name: 'observation_input' })
+    /*
     const reshapedInput = tf.layers.reshape({
       targetShape: [this.config.observationSize[0], this.config.observationSize[1], 1]
     }).apply(observationInput) as tf.SymbolicTensor
@@ -67,40 +67,73 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
     const bn2 = tf.layers.batchNormalization({ axis: 1 }).apply(dense2)
     const relu2 = tf.layers.activation({ activation: 'relu' }).apply(bn2)
     const fc2 = tf.layers.dropout({ rate: dropout }).apply(relu2)
-
+    */
+    const dqnLayer = this.createDeepQNetwork(observationInput, channels, dropout)
     this.inferenceModel = tf.model({
       name: 'AlphaZero Model',
       inputs: observationInput,
       outputs: [
-        tf.layers.dense({ name: 'prediction_policy_output', units: config.actionSpace, activation: 'softmax' }).apply(fc2) as tf.SymbolicTensor,
-        tf.layers.dense({ name: 'prediction_value_output', units: 1, activation: 'tanh' }).apply(fc2) as tf.SymbolicTensor
+        tf.layers.dense({ name: 'prediction_policy_output', units: config.actionSpace, activation: 'softmax' }).apply(dqnLayer) as tf.SymbolicTensor,
+        tf.layers.dense({ name: 'prediction_value_output', units: 1, activation: 'tanh' }).apply(dqnLayer) as tf.SymbolicTensor
       ]
     })
     this.inferenceModel.compile({
       optimizer: tf.train.adam(config.lrInit),
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
-        prediction_value_output: tf.losses.meanSquaredError
+        prediction_value_output: tf.losses.absoluteDifference
       },
       metrics: ['acc']
     })
   }
 
+  private createDeepQNetwork(input: tf.SymbolicTensor, channels: number, dropout: number) {
+    debug(`${input.shape}`)
+    const reshapedInput = tf.layers.reshape({
+      targetShape: [input.shape[1], input.shape[2], 1]
+    }).apply(input)
+    // shape: [null,15,3,1]
+    const convnet1 = tf.layers.batchNormalization().apply(tf.layers.conv2d({
+      filters: channels,
+      kernelSize: 3,
+      strides: 1,
+      padding: "same",
+      activation: 'relu'
+    }).apply(reshapedInput))
+    // shape:  [null,15,3,64]
+    const convnet2 = tf.layers.batchNormalization().apply(tf.layers.conv2d({
+      filters: channels*2,
+      kernelSize: 3,
+      strides: 1,
+      padding: "same",
+      activation: 'relu'
+    }).apply(convnet1))
+    // shape: [null,15,3,128]
+    const convnet3 = tf.layers.conv2d({
+      filters: channels*2,
+      kernelSize: 3,
+      strides: 1,
+      activation: 'relu'
+    }).apply(convnet2)
+    // shape: [null,13,1,128]
+    const flatten = tf.layers.flatten().apply(convnet3)
+    // shape: [null,1664]
+    const dense1 = tf.layers.dense({ units: this.hiddenLayerSize, activation: 'relu' }).apply(flatten)
+    return tf.layers.dropout({rate: dropout}).apply(dense1)
+  }
+
   private resildualBlock (name: string, channels: number, input: tf.SymbolicTensor): tf.SymbolicTensor {
     const conv = tf.layers.conv2d({
       name: `rb_${name}_CONV2D`,
+      filters: channels,
       kernelSize: 3,
       strides: 1,
-      filters: channels,
-      padding: 'same'
+      activation: 'relu',
     }).apply(input) as tf.SymbolicTensor
-    const bn = tf.layers.batchNormalization({
+    return tf.layers.batchNormalization({
       name: `rb_${name}_BN`,
       axis: 3
     }).apply(conv) as tf.SymbolicTensor
-    return tf.layers.reLU({
-      name: `rb_${name}_RELU`
-    }).apply(bn) as tf.SymbolicTensor
   }
 
   private makeHiddenLayer (name: string, units: number): tf.layers.Layer {
@@ -161,11 +194,14 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
    * Execute h(o)->s f(s)->p,v
    * @param obs
    */
-  public initialInference (obs: MuZeroNetObservation): NetworkOutput {
+  public initialInference (obs: Observation): NetworkOutput {
+    if (!(obs instanceof MuZeroNetObservation)) {
+      throw new Error(`Incorrect observation applied to initialInference`)
+    }
     const observation = tf.tensor2d(obs.state)
     const [tfPolicy, tfValue] = this.inferenceModel.predict(observation.expandDims(0)) as tf.Tensor[]
-    const policy = this.inversePolicyTransform(tfPolicy)
-    const value = this.inverseValueTransform(tfValue)
+    const policy = tfPolicy.squeeze().arraySync() as number[]
+    const value = (tfValue.arraySync() as number[])[0]
     observation.dispose()
     tfPolicy.dispose()
     tfValue.dispose()
@@ -176,14 +212,24 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
    * trainInference
    * @param samples
    */
-  public async trainInference (samples: Array<Batch<Actionwise>>): Promise<number> {
-    debug(`Training initial batch of size=${samples.length}`)
+  public async trainInference (samples: Array<Batch<Action>>): Promise<number> {
+    debug(`Training batch of size=${samples.length}`)
 
-    const rObservations = tf.tidy(() => tf.concat(samples.reduce((ar, batch) => ar.concat(batch.image.map(img => tf.tensor2d((img as MuZeroNetObservation).state).expandDims(0))), new Array<tf.Tensor<tf.Rank>>())))
-    const rTargetPolicies = tf.tidy(() => tf.concat(samples.reduce((ar, batch) => ar.concat(batch.targets.map(target => this.policyPredict(target.policy))), new Array<tf.Tensor<tf.Rank>>())))
-    const rTargetRewards = tf.tidy(() => tf.concat(samples.reduce((ar, batch) => ar.concat(batch.targets.map(target => this.valueTransform(target.reward))), new Array<tf.Tensor<tf.Rank>>())))
+    const rObservations = tf.tidy(() => tf.concat(
+        samples.reduce((ar, batch) =>
+            ar.concat(batch.image.map(img => tf.tensor2d((img as MuZeroNetObservation).state).expandDims(0))),
+            new Array<tf.Tensor<tf.Rank>>())))
+    const rTargetPolicies = tf.tidy(() => tf.concat(
+        samples.reduce((ar, batch) =>
+            ar.concat(batch.targets.map(target => tf.tensor1d(target.policy).expandDims(0))),
+            new Array<tf.Tensor<tf.Rank>>())))
+    const rTargetRewards = tf.tidy(() => tf.concat(
+        samples.reduce((ar, batch) =>
+            ar.concat(batch.targets.map(target => tf.tensor1d([target.reward]))),
+            new Array<tf.Tensor<tf.Rank>>())))
 
-    debug(`Training recurrent batch of size=${rObservations.shape[0]}`)
+    debug(`Training tensors: Obs=${rObservations.shape} pis=${rTargetPolicies.shape} rewards=${rTargetRewards.shape}`)
+    debug(`Sample training set: obs=${(samples[0].image[0] as MuZeroNetObservation).state} pi=${samples[0].targets[0].policy} v=${samples[0].targets[0].reward}`)
     /*
       Use:
         pip install tensorboard  # Unless you've already installed it.
@@ -207,47 +253,12 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
     rObservations.dispose()
     rTargetPolicies.dispose()
     rTargetRewards.dispose()
-    const loss = history.history.loss[0] as number
-    return loss
-  }
-
-  private inversePolicyTransform (x: tf.Tensor): number[] {
-    return x.squeeze().arraySync() as number[]
-  }
-
-  private policyTransform (policy: number): tf.Tensor {
-    // One hot encode integer actions to Tensor2D
-    return tf.oneHot(tf.tensor1d([policy], 'int32'), this.config.actionSpace, 1, 0, 'float32')
-    //    const tfPolicy = tf.softmax(onehot)
-    //    debug(`PolicyTransform: oneHot=${onehot.toString()}, policy=${tfPolicy.toString()}`)
-    //    return tfPolicy
-  }
-
-  private policyPredict (policy: number[]): tf.Tensor {
-    // define the probability for each action based on popularity (visits)
-    return tf.softmax(tf.tensor1d(policy)).expandDims(0)
-  }
-
-  private inverseRewardTransform (rewardLogits: tf.Tensor): number {
-    return supportToScalar(rewardLogits, this.rewardSupportSize)[0]
-  }
-
-  private inverseValueTransform (valueLogits: tf.Tensor): number {
-    return supportToScalar(valueLogits, this.valueSupportSize)[0]
-  }
-
-  /*
-  private rewardTransform (reward: number): tf.Tensor {
-    return scalarToSupport([reward], this.rewardSupportSize)
-  }
-*/
-  private valueTransform (value: number): tf.Tensor {
-    return scalarToSupport([value], this.valueSupportSize)
+    return history.history.loss[0] as number
   }
 
   public async save (path: string): Promise<void> {
     await Promise.all([
-      this.inferenceModel.save(path + 'ii')
+      this.inferenceModel.save(path + 'alphazero')
     ])
   }
 
@@ -255,15 +266,24 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
     const [
       initialInference
     ] = await Promise.all([
-      tf.loadLayersModel(path + 'ii/model.json')
+      tf.loadLayersModel(path + 'alphazero/model.json')
     ])
-    this.inferenceModel.setWeights(initialInference.getWeights())
+    tf.tidy(() => this.inferenceModel.setWeights(initialInference.getWeights()))
     initialInference.dispose()
   }
 
   public copyWeights (network: Network<Action>): void {
-    tf.tidy(() => {
-      network.inferenceModel.setWeights(this.inferenceModel.getWeights())
-    })
+    tf.tidy(() => (network as NNet<Action>).inferenceModel.setWeights(this.inferenceModel.getWeights()))
+  }
+
+  public duplicate (): Network<Action> {
+    const copynet: Network<Action> = Object.create(this)
+    this.copyWeights(copynet)
+    return copynet
+  }
+
+  public dispose (): void {
+//    const ref = this.inferenceModel.dispose()
+//    debug(`Disposed network: ref count: ${ref.refCountAfterDispose} disposed variables=${ref.numDisposedVariables}`)
   }
 }

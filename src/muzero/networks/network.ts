@@ -7,6 +7,7 @@ import { Logs } from '@tensorflow/tfjs-node'
 import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
 import debugFactory from 'debug'
 import { MuZeroAction } from '../games/core/action'
+import {Observation} from "../../alphazero/networks/nnet";
 
 const debug = debugFactory('muzero:network:debug')
 
@@ -22,7 +23,7 @@ class MuZeroNetHiddenState implements MuZeroHiddenState {
   ) {}
 }
 
-export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
+export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
   // Length of the action tensors
@@ -204,7 +205,10 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
    * Execute h(o)->s f(s)->p,v
    * @param obs
    */
-  public initialInference (obs: MuZeroNetObservation): NetworkOutput {
+  public initialInference (obs: MuZeroObservation): NetworkOutput {
+    if (!(obs instanceof MuZeroNetObservation)) {
+      throw new Error(`Incorrect observation applied to initialInference`)
+    }
     const observation = tf.tensor2d(obs.state)
     const [tfPolicy, tfValue, tfHiddenState] = this.initialInferenceModel.predict(observation.reshape([1, -1])) as tf.Tensor[]
     const hiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
@@ -220,7 +224,10 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
    * @param hiddenState
    * @param action
    */
-  public recurrentInference (hiddenState: MuZeroNetHiddenState, action: MuZeroAction): NetworkOutput {
+  public recurrentInference (hiddenState: MuZeroHiddenState, action: Action): NetworkOutput {
+    if (!(hiddenState instanceof MuZeroNetHiddenState)) {
+      throw new Error(`Incorrect hidden state applied to recurrentInference`)
+    }
     const conditionedHiddenState = tf.concat([tf.tensor2d([hiddenState.state]), this.policyTransform(action.id)], 1)
     const [tfPolicy, tfValue, tfReward, tfNewHiddenState] = this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
     const newHiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfNewHiddenState.reshape([-1]).arraySync() as number[])
@@ -445,8 +452,11 @@ export class MuZeroNet implements MuZeroNetwork<MuZeroAction> {
     }
   }
 
-  public copyWeights (network: MuZeroNet): void {
-    tf.tidy(() => {
+  public copyWeights (network: MuZeroNetwork<Action>): void {
+      if (!(network instanceof MuZeroNet)) {
+        throw new Error(`Incorrect network applied to copy weights`)
+      }
+      tf.tidy(() => {
       network.initialInferenceModel.setWeights(this.initialInferenceModel.getWeights())
       network.recurrentInferenceModel.setWeights(this.recurrentInferenceModel.getWeights())
     })

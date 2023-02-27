@@ -4,6 +4,7 @@ import { MuZeroBatch } from '../replaybuffer/batch'
 import { Actionwise, Playerwise } from '../selfplay/entities'
 import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
 import { MuZeroEnvironment } from '../games/core/environment'
+import {MuZeroNetObservation} from "./network";
 
 class MuZeroMockedObservation<State> implements MuZeroObservation {
   constructor (
@@ -27,7 +28,10 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     this.actionSpaceN = env.config().actionSpaceSize
   }
 
-  public initialInference (obs: MuZeroMockedObservation<State>): NetworkOutput {
+  public initialInference (obs: MuZeroObservation): NetworkOutput {
+    if (!(obs instanceof MuZeroMockedObservation<State>)) {
+      throw new Error(`Incorrect observation applied to initialInference`)
+    }
     // The mocked network will respond with the perfect move
     const action = this.env.expertAction(obs.state)
     const reward = this.env.reward(obs.state, obs.state.player)
@@ -38,7 +42,10 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     return new NetworkOutput(value, reward, policy, hiddenState)
   }
 
-  public recurrentInference (hiddenState: MuZeroMockedHiddenState<State>, action: Action): NetworkOutput {
+  public recurrentInference (hiddenState: MuZeroHiddenState, action: Action): NetworkOutput {
+    if (!(hiddenState instanceof MuZeroMockedHiddenState)) {
+      throw new Error(`Incorrect hidden state applied to recurrentInference`)
+    }
     // The mocked network will respond with the perfect move
     const newState = this.env.step(hiddenState.state, action)
     const newAction = this.env.expertAction(hiddenState.state)

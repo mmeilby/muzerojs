@@ -10,7 +10,7 @@ import { Config } from '../games/core/config'
 import { Actionwise } from '../games/core/actionwise'
 import { Statewise } from '../games/core/statewise'
 import { Observation } from '../networks/nnet'
-const debug = debugFactory('muzero:replaybuffer:module')
+const debug = debugFactory('alphazero:replaybuffer:module')
 
 /**
  * Replay Buffer
@@ -100,11 +100,9 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
         gameSamples.push(this.sampleGame(forceUniform))
       }
     }
-    //    debug('Sample %d games', this.batchSize)
+    debug(`Sample ${gameSamples.length} games`)
     return gameSamples.map(g => {
       const gameHistory = g.gameHistory
-      //      debug(game.env.toString(game.state))
-      //      debug(game.state.toString())
       const index = this.samplePosition(gameHistory, forceUniform).position
       const target = gameHistory.makeTarget(index, numUnrollSteps, tdSteps, this.config.discount)
       const validTargets = target.map((t, i) => t.policy.length > 0 ? i : -1).filter(v => v >= 0)
@@ -193,7 +191,8 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
   public loadSavedGames (
     environment: Environment<State, Action>,
     model: ObservationModel<State>
-  ): void {
+  ): boolean {
+    let success = false
     try {
       const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
       if (json !== null) {
@@ -201,10 +200,13 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.recordedSteps(), 0)
         this.numPlayedGames = this.buffer.length
         this.numPlayedSteps = this.totalSamples
+        success = true
       }
     } catch (e) {
+      // Error: ENOENT: no such file or directory, open './data/games.json'
       debug(e)
     }
+    return success
   }
 
   public storeSavedGames (): void {

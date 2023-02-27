@@ -4,11 +4,14 @@ import { MuZeroNetwork } from '../networks/nnet'
 import { Actionwise } from '../selfplay/entities'
 import { MuZeroNet } from '../networks/network'
 import { MuZeroUniformNetwork } from '../networks/uniform'
+import {Observation} from "../../alphazero/networks/nnet";
+import {NetworkOutput} from "../../alphazero/networks/networkoutput";
+import {MuZeroNetObservation} from "../../alphazero/networks/network";
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
-export class MuZeroSharedStorage {
-  private readonly latestNetwork_: MuZeroNetwork<Actionwise>
+export class MuZeroSharedStorage<Action extends Actionwise> {
+  private readonly latestNetwork_: MuZeroNetwork<Action>
   private readonly maxNetworks: number
   public networkCount: number
 
@@ -26,16 +29,16 @@ export class MuZeroSharedStorage {
     this.networkCount = -1
   }
 
-  public initialize (): MuZeroNetwork<Actionwise> {
-    return new MuZeroNet(this.config.observationSize, this.config.actionSpace, this.config.lrInit)
+  public initialize (): MuZeroNetwork<Action> {
+    return new MuZeroNet<Action>(this.config.observationSize, this.config.actionSpace, this.config.lrInit)
   }
 
-  public uniformNetwork (): MuZeroNetwork<Actionwise> {
+  public uniformNetwork (): MuZeroNetwork<Action> {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
     return new MuZeroUniformNetwork(this.config.actionSpace)
   }
 
-  public latestNetwork (): MuZeroNetwork<Actionwise> {
+  public latestNetwork (): MuZeroNetwork<Action> {
     debug(`Picked the latest network - training step ${this.networkCount}`)
     return this.networkCount >= 0 ? this.latestNetwork_ : this.uniformNetwork()
   }
@@ -50,7 +53,7 @@ export class MuZeroSharedStorage {
     }
   }
 
-  public async saveNetwork (step: number, network: MuZeroNetwork<Actionwise>): Promise<void> {
+  public async saveNetwork (step: number, network: MuZeroNetwork<Action>): Promise<void> {
     debug('Saving network')
     await network.save('file://data/')
     network.copyWeights(this.latestNetwork_)

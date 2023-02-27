@@ -51,7 +51,7 @@ export class SelfPlay<State extends Statewise, Action extends Actionwise> {
       const pi = this.getActionProp(node, dataStore, temp)
       const action = this.env.action(this.randomChoice(pi))
       gameHistory.apply(action)
-      gameHistory.storeSearchStatistics(pi, 0)
+      gameHistory.storeSearchStatistics(pi)
       // Prepare new root node for tree search
       const bestChild = node.children.find(child => child.action.id === action.id)
       if (bestChild !== undefined) {
@@ -206,7 +206,7 @@ export class SelfPlay<State extends Statewise, Action extends Actionwise> {
   private ucbScore (child: MCTSNode<State, Action>, exploit = false): number {
     if (exploit) {
       // For exploitation only we simply measure the number of visits
-      // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
+      // Pseudo code actually calculates softmax(child.visits): exp(child.Ns / temp) / sum(exp(child.Ns / temp))
       return child.Nsa
     }
     const pbCbase = this.config.pbCbase

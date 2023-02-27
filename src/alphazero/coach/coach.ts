@@ -5,15 +5,15 @@ import { Statewise } from '../games/core/statewise'
 import { Actionwise } from '../games/core/actionwise'
 import { ReplayBuffer } from '../replaybuffer/replaybuffer'
 import { SelfPlay } from '../selfplay/selfplay'
+import { Arena } from './arena'
 import { Network } from '../networks/nnet'
 import * as tf from '@tensorflow/tfjs-node'
 
 import debugFactory from 'debug'
-import { Arena } from './arena'
 const debug = debugFactory('alphazero:coach:module')
 
 export class Coach<State extends Statewise, Action extends Actionwise> {
-  private readonly skipFirstSelfPlay: boolean
+  private skipFirstSelfPlay: boolean
 
   constructor (
     private readonly config: Config,
@@ -33,6 +33,13 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
      */
   public async learn (network: Network<Action>): Promise<void> {
     const replayBuffer = new ReplayBuffer<State, Action>(this.config)
+    try {
+      await network.load('file://data/')
+      debug('Network loaded')
+    } catch (e) {
+      debug(`Network initialized randomly`)
+    }
+    this.skipFirstSelfPlay = replayBuffer.loadSavedGames(this.env, this.model)
     for (let i = 1; i < this.config.numIterations; i++) {
       debug(`Starting coached iteration #${i}`)
       if (!this.skipFirstSelfPlay || i > 1) {
@@ -42,13 +49,14 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
           const game = mcts.executeEpisode()
           replayBuffer.saveGame(game)
         }
+      } else {
+        debug(`Skipping first generated training set - using saved games`)
       }
       // backup history to a file
       // NB! the examples were collected using the model from the previous iteration, so (i-1)
       replayBuffer.storeSavedGames()
       // training new network, keeping a copy of the old one
-      const pnet: Network<Action> = Object.create(network)
-      network.copyWeights(pnet)
+      const pnet = network.duplicate()
       debug('Training network')
       await this.train(network, replayBuffer)
       // Pitting against previous version
@@ -57,16 +65,22 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
       const nmcts = new SelfPlay(this.config, this.env, this.model, network)
       const arena = new Arena(this.config, this.env, this.model, nmcts, pmcts)
       const result = arena.playGames(this.config.numGames)
-      const nwins = result.oneWon; const pwins = result.twoWon; const draws = result.draws
+      debug(`NEW/PREV WINS ROUND 1: ${result[0].oneWon} / ${result[0].twoWon} ; DRAWS : ${result[0].draws}`)
+      debug(`NEW/PREV WINS ROUND 2: ${result[1].twoWon} / ${result[1].oneWon} ; DRAWS : ${result[1].draws}`)
+      const nwins = result[0].oneWon + result[1].twoWon
+      const pwins = result[0].twoWon + result[1].oneWon
+      const draws = result[0].draws + result[1].draws
       // Accept or reject the new model
-      debug(`NEW/PREV WINS : ${nwins} / ${pwins} ; DRAWS : ${draws}`)
+      debug(`NEW/PREV WINS TOTAL: ${nwins} / ${pwins} ; DRAWS : ${draws}`)
       if (pwins + nwins === 0 || nwins / (pwins + nwins) < this.config.networkUpdateThreshold) {
         debug('REJECTING NEW MODEL')
+        // Revert to saved weights
         pnet.copyWeights(network)
       } else {
         debug('ACCEPTING NEW MODEL')
-        //                network.save('file://data/')
+        await network.save('file://data/')
       }
+      pnet.dispose()
     }
   }
 

@@ -42,30 +42,24 @@ export class Arena<State extends Statewise, Action extends Actionwise> {
      *
      * @param numGames
      */
-  public playGames (numGames: number): ArenaResult {
-    const result = new ArenaResult()
-    for (let i = Math.floor(numGames / 2); i > 0; i--) {
-      const matchResult = this.playGame([this.mcts1, this.mcts2])
-      if (matchResult === 1) {
-        result.oneWon++
-      } else if (matchResult === -1) {
-        result.twoWon++
-      } else {
-        result.draws++
+  public playGames (numGames: number): ArenaResult[] {
+    const playIt = (n: number, players: Array<SelfPlay<State, Action>>): ArenaResult => {
+      const result = new ArenaResult()
+      for (let i = n; i > 0; i--) {
+        const matchResult = this.playGame(players)
+        if (matchResult > 0) {
+          result.oneWon++
+        } else if (matchResult < 0) {
+          result.twoWon++
+        } else {
+          result.draws++
+        }
       }
+      return result
     }
-    debug(`NEW/PREV WINS FOR NEW MODEL START : ${result.oneWon} / ${result.twoWon} ; DRAWS : ${result.draws}`)
-    for (let i = Math.floor(numGames / 2); i > 0; i--) {
-      const matchResult = this.playGame([this.mcts2, this.mcts1])
-      if (matchResult === 1) {
-        result.twoWon++
-      } else if (matchResult === -1) {
-        result.oneWon++
-      } else {
-        result.draws++
-      }
-    }
-    return result
+    const result1 = playIt(Math.floor(numGames / 2), [this.mcts1, this.mcts2])
+    const result2 = playIt(Math.floor(numGames / 2), [this.mcts2, this.mcts1])
+    return [ result1, result2 ]
   }
 
   private playGame (players: Array<SelfPlay<State, Action>>): number {

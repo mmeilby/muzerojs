@@ -1,9 +1,9 @@
-import { NetworkOutput } from './networkoutput'
-import { Batch } from '../replaybuffer/batch'
-import { Network, Observation } from './nnet'
-import { Environment } from '../games/core/environment'
-import { Actionwise } from '../games/core/actionwise'
-import { Statewise } from '../games/core/statewise'
+import {NetworkOutput} from './networkoutput'
+import {Batch} from '../replaybuffer/batch'
+import {Network, Observation} from './nnet'
+import {Environment} from '../games/core/environment'
+import {Actionwise} from '../games/core/actionwise'
+import {Statewise} from '../games/core/statewise'
 
 export class MockedObservation<State> implements Observation {
   constructor (
@@ -21,8 +21,11 @@ export class MockedNetwork<State extends Statewise, Action extends Actionwise> i
     this.actionSpaceN = env.config().actionSpaceSize
   }
 
-  public initialInference (obs: MockedObservation<State>): NetworkOutput {
+  public initialInference (obs: Observation): NetworkOutput {
     // The mocked network will respond with the perfect move
+    if (!(obs instanceof MockedObservation)) {
+      throw new Error(`Incurrent observation applied to initialInference`)
+    }
     const policy = this.env.expertAction(obs.state)
     const value = this.env.reward(obs.state, obs.state.player)
     return new NetworkOutput(value, policy)
@@ -43,5 +46,13 @@ export class MockedNetwork<State extends Statewise, Action extends Actionwise> i
 
   public copyWeights (network: Network<Action>): void {
     // A mocked network does not have any data to copy - leave the target network untouched
+  }
+
+  public duplicate (): Network<Action> {
+    return Object.create(this)
+  }
+
+  public dispose (): void {
+    // Nothing to dispose
   }
 }

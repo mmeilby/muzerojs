@@ -32,4 +32,12 @@ export class UniformNetwork<State extends Statewise, Action extends Actionwise> 
   public copyWeights (network: Network<Action>): void {
     // A uniform network does not have any data to copy - leave the target network untouched
   }
+
+  public duplicate (): Network<Action> {
+    return Object.create(this)
+  }
+
+  public dispose (): void {
+    // Nothing to dispose
+  }
 }
