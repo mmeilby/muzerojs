@@ -43,7 +43,7 @@ export class SelfPlay<State extends Statewise, Action extends Actionwise> {
    */
   public executeEpisode (): GameHistory<State, Action> {
     const dataStore = new TranspositionTable<State>(new Map())
-    const gameHistory = new GameHistory(this.env, this.model)
+    const gameHistory = new GameHistory(this.env)
     const rootNode: MCTSNode<State, Action> = new MCTSNode(this.mctsState(gameHistory.state, dataStore), gameHistory.state.player)
     // Play a game from start to end, register target data on the fly for the game history
     for (let node = rootNode; !gameHistory.terminal() && gameHistory.recordedSteps() < this.config.maxMoves;) {

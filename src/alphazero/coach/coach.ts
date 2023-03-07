@@ -10,6 +10,8 @@ import { Network } from '../networks/nnet'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 
 import debugFactory from 'debug'
+import {MockedNetwork, MockedObservation} from "../networks/mnetwork";
+import {MockedModel} from "../networks/mmodel";
 const debug = debugFactory('alphazero:coach:module')
 
 export class Coach<State extends Statewise, Action extends Actionwise> {
@@ -32,20 +34,22 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
      * only if it wins >= updateThreshold fraction of games.
      */
   public async learn (network: Network<Action>): Promise<void> {
-    const replayBuffer = new ReplayBuffer<State, Action>(this.config)
+    const mnet = new MockedNetwork(this.env)
+    const mmodel = new MockedModel<State>()
+    const replayBuffer = new ReplayBuffer<State, Action>(this.config, this.env)
     try {
       await network.load('file://data/')
       debug('Network loaded')
     } catch (e) {
       debug(`Network initialized randomly`)
     }
-    this.skipFirstSelfPlay = replayBuffer.loadSavedGames(this.env, this.model)
+    this.skipFirstSelfPlay = replayBuffer.loadSavedGames()
     for (let i = 1; i < this.config.numIterations; i++) {
       debug(`Starting coached iteration #${i}`)
       if (!this.skipFirstSelfPlay || i > 1) {
         debug(`Generating ${this.config.numEpisodes} games for training`)
         for (let episodes = 0; episodes < this.config.numEpisodes; episodes++) {
-          const mcts = new SelfPlay(this.config, this.env, this.model, network)
+          const mcts = new SelfPlay(this.config, this.env, mmodel, mnet)
           const game = mcts.executeEpisode()
           replayBuffer.saveGame(game)
         }
@@ -61,9 +65,7 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
       await this.train(network, replayBuffer)
       // Pitting against previous version
       debug('Pitting against previous model')
-      const pmcts = new SelfPlay(this.config, this.env, this.model, pnet)
-      const nmcts = new SelfPlay(this.config, this.env, this.model, network)
-      const arena = new Arena(this.config, this.env, this.model, nmcts, pmcts)
+      const arena = new Arena(this.config, this.env, this.model, network, mnet)
       const result = arena.playGames(this.config.numGames)
       debug(`NEW/PREV WINS ROUND 1: ${result[0].oneWon} / ${result[0].twoWon} ; DRAWS : ${result[0].draws}`)
       debug(`NEW/PREV WINS ROUND 2: ${result[1].twoWon} / ${result[1].oneWon} ; DRAWS : ${result[1].draws}`)
@@ -87,7 +89,7 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
   private async train (network: Network<Action>, replayBuffer: ReplayBuffer<State, Action>): Promise<void> {
     let useBaseline = tf.memory().numTensors
     for (let step = 1; step <= this.config.trainingSteps; step++) {
-      const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps)
+      const batchSamples = replayBuffer.sampleBatch(this.model, this.config.numUnrollSteps, this.config.tdSteps)
       const losses = await network.trainInference(batchSamples)
       debug(`Mean loss: step #${step} ${losses.toFixed(3)}`)
       if (tf.memory().numTensors - useBaseline > 0) {

@@ -33,6 +33,7 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
   private readonly inferenceModel: tf.LayersModel
 
   private readonly logDir: string
+  private trainingStep = 0
 
   constructor (
     private readonly config: Config
@@ -47,7 +48,7 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
 
     this.logDir = './logs/alphazero'
 
-    const channels = 64
+    const channels = 16
     const dropout = 0.3
     const observationInput = tf.input({ shape: config.observationSize, name: 'observation_input' })
     /*
@@ -78,46 +79,45 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
       ]
     })
     this.inferenceModel.compile({
-      optimizer: tf.train.adam(config.lrInit),
+      optimizer: 'rmsprop',
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
         prediction_value_output: tf.losses.absoluteDifference
       },
       metrics: ['acc']
     })
+    this.inferenceModel.summary(160, undefined, (message?: any, ...optionalParams: any[]) => {
+      debug(message)
+    })
   }
 
   private createDeepQNetwork(input: tf.SymbolicTensor, channels: number, dropout: number) {
-    debug(`${input.shape}`)
     const reshapedInput = tf.layers.reshape({
       targetShape: [input.shape[1], input.shape[2], 1]
     }).apply(input)
-    // shape: [null,15,3,1]
-    const convnet1 = tf.layers.batchNormalization().apply(tf.layers.conv2d({
-      filters: channels,
+    // shape: [null,5,4,1]
+    const convnet1 = tf.layers.maxPool2d({
+      poolSize: 2,
+      strides: 2
+    }).apply(tf.layers.conv2d({
       kernelSize: 3,
-      strides: 1,
+      filters: channels,
       padding: "same",
       activation: 'relu'
     }).apply(reshapedInput))
-    // shape:  [null,15,3,64]
-    const convnet2 = tf.layers.batchNormalization().apply(tf.layers.conv2d({
+    // shape:  [null,2,2,16]
+    const convnet2 = tf.layers.maxPool2d({
+      poolSize: 2,
+      strides: 1
+    }).apply(tf.layers.conv2d({
       filters: channels*2,
       kernelSize: 3,
-      strides: 1,
       padding: "same",
       activation: 'relu'
     }).apply(convnet1))
-    // shape: [null,15,3,128]
-    const convnet3 = tf.layers.conv2d({
-      filters: channels*2,
-      kernelSize: 3,
-      strides: 1,
-      activation: 'relu'
-    }).apply(convnet2)
-    // shape: [null,13,1,128]
-    const flatten = tf.layers.flatten().apply(convnet3)
-    // shape: [null,1664]
+    // shape: [null,1,1,32]
+    const flatten = tf.layers.flatten().apply(convnet2)
+    // shape: [null,32]
     const dense1 = tf.layers.dense({ units: this.hiddenLayerSize, activation: 'relu' }).apply(flatten)
     return tf.layers.dropout({rate: dropout}).apply(dense1)
   }
@@ -250,6 +250,8 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
         callbacks: tf.node.tensorBoard(this.logDir, { updateFreq: 'epoch', histogramFreq: 0 })
       }
     )
+    tf.node.summaryFileWriter(this.logDir).scalar('loss', history.history.loss[0] as number, ++this.trainingStep)
+//    const evaluation = this.inferenceModel.evaluate(rObservations, [ rTargetPolicies, rTargetRewards ], { batchSize: 64, verbose: 0 })
     rObservations.dispose()
     rTargetPolicies.dispose()
     rTargetRewards.dispose()

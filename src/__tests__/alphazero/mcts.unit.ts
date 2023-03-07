@@ -7,18 +7,18 @@ import { NimState } from '../../alphazero/games/nim/nimstate'
 import { Config } from '../../alphazero/games/core/config'
 import { MockedNetwork } from '../../alphazero/networks/mnetwork'
 import { TranspositionTable } from '../../alphazero/selfplay/data-store'
-import { NimNetMockedModel } from '../../alphazero/games/nim/nimmmodel'
+import { MockedModel } from '../../alphazero/networks/mmodel'
 import { GameHistory } from '../../alphazero/selfplay/gamehistory'
 import debugFactory from 'debug'
 const debug = debugFactory('muzero:mcts:unit')
 
 describe('MCTS Unit Test:', () => {
   const factory = new Nim()
-  const model = new NimNetMockedModel()
+  const model = new MockedModel()
   const config = factory.config()
   const conf = new Config(config.actionSpaceSize, model.observationSize)
   test('Check MCTS', async () => {
-    const replayBuffer = new ReplayBuffer<NimState, NimAction>(conf)
+    const replayBuffer = new ReplayBuffer<NimState, NimAction>(conf, factory)
     const dataStore = new TranspositionTable<NimState>(new Map())
     const network = new MockedNetwork<NimState, NimAction>(factory)
     conf.numEpisodes = 2

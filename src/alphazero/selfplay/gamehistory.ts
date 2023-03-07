@@ -16,31 +16,11 @@ interface GameHistoryObject {
 
 export class GameHistory<State extends Statewise, Action extends Actionwise> {
   private readonly history: Array<HistoryObject<State, Action>>
-  private readonly environment: Environment<State, Action> // Game specific environment.
-  private readonly model: ObservationModel<State>
   private _state: State
-  // A list of actions taken at each turn of the game
-  //  public readonly actionHistory: Action[]
-  // A list of true rewards received at each turn of the game
-  //  public readonly rewards: number[]
-  // A list of tracked player at each turn of the game
-  //  public readonly toPlayHistory: number[]
-  // A list of action probability distributions from the root node at each turn of the game
-  // Derived from number of visits per root children per action
-  //  public readonly childVisits: number[][]
-  // A list of values of the root node at each turn of the game
-  //  public readonly rootValues: number[]
-  // Root value deviations from true target value - used for priority sorting of saved games
-  //  public priorities: number[]
-  // Largest absolute deviation from target value of the priorities list
-  //  public gamePriority: number
 
   constructor (
-    environment: Environment<State, Action>,
-    model: ObservationModel<State>
+    private readonly environment: Environment<State, Action>
   ) {
-    this.environment = environment
-    this.model = model
     this._state = environment.reset()
     this.history = []
   }
@@ -76,8 +56,6 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
   }
 
   public updateRewards (): void {
-    // Get player id for player to play when game is over
-    const player = this._state.player
     // As player with id=1 always start, get the reward from player 1's perspective
     const reward = this.environment.reward(this._state, 1)
     // Produce the expected reward seen from each player's perspective
@@ -86,13 +64,13 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
     })
   }
 
-  public makeImage (stateIndex: number): Observation {
+  public makeImage (stateIndex: number, model: ObservationModel<State>): Observation {
     // Game specific feature planes.
     const historyObject = this.history.at(stateIndex)
     if (historyObject !== undefined) {
-      return this.model.observation(historyObject.state)
+      return model.observation(historyObject.state)
     } else {
-      return this.model.observation(this._state)
+      return model.observation(this._state)
     }
   }
 
@@ -171,7 +149,7 @@ export class GameHistory<State extends Statewise, Action extends Actionwise> {
     const games: Array<GameHistory<State, Action>> = []
     const objects: GameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
-      const game = new GameHistory(this.environment, this.model)
+      const game = new GameHistory(this.environment)
       object.actions.forEach((oAction, i) => {
         const action = game.legalActions().find(a => a.id === oAction)
         if (action !== undefined) {

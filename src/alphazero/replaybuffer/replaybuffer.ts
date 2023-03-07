@@ -26,6 +26,7 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
   /**
    *
    * @param config
+   * @param environment
    * @param config.replayBufferSize Number of self-play games to keep in the replay buffer
    * @param config.actionSpace Number of all possible actions
    * @param config.tdSteps Number of steps in the future to take into account for calculating
@@ -41,7 +42,8 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
    * paper suggests 1.0
    */
   public constructor (
-    private readonly config: Config
+    private readonly config: Config,
+    private readonly environment: Environment<State, Action>
   ) {
     this.buffer = []
     this.numPlayedGames = 0
@@ -88,12 +90,13 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
   /**
    * sampleBatch
    * Get a sample batch from the replay buffer (used for training)
+   * @param model
    * @param numUnrollSteps Number of game moves to keep for every batch element
    * @param tdSteps Number of steps in the future to take into account for calculating the target value
    * @param forceUniform Flag to force a uniform selection randomly
    * @return MuZeroBatch[] Sample batch - list of batch elements (batchSize length)
    */
-  public sampleBatch (numUnrollSteps: number, tdSteps: number, forceUniform = false): Array<Batch<Action>> {
+  public sampleBatch (model: ObservationModel<State>, numUnrollSteps: number, tdSteps: number, forceUniform = false): Array<Batch<Action>> {
     const gameSamples: Array<GameSample<State, Action>> = []
     if (this.numPlayedGames > 0) {
       for (let c = 0; c < (this.config.batchSize); c++) {
@@ -106,7 +109,7 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
       const index = this.samplePosition(gameHistory, forceUniform).position
       const target = gameHistory.makeTarget(index, numUnrollSteps, tdSteps, this.config.discount)
       const validTargets = target.map((t, i) => t.policy.length > 0 ? i : -1).filter(v => v >= 0)
-      const observations: Observation[] = validTargets.map(i => gameHistory.makeImage(index + i))
+      const observations: Observation[] = validTargets.map(i => gameHistory.makeImage(index + i, model))
       return new Batch(observations, target.filter(t => t.policy.length > 0))
     })
   }
@@ -188,15 +191,12 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
     return new MuZeroPositionSample(positionIndex, positionProb)
   }
 
-  public loadSavedGames (
-    environment: Environment<State, Action>,
-    model: ObservationModel<State>
-  ): boolean {
+  public loadSavedGames (): boolean {
     let success = false
     try {
       const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
       if (json !== null) {
-        this.buffer = new GameHistory(environment, model).deserialize(json)
+        this.buffer = new GameHistory(this.environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.recordedSteps(), 0)
         this.numPlayedGames = this.buffer.length
         this.numPlayedSteps = this.totalSamples
@@ -204,7 +204,9 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
       }
     } catch (e) {
       // Error: ENOENT: no such file or directory, open './data/games.json'
-      debug(e)
+      if (!(e as Error).message.includes('ENOENT')) {
+        debug(e)
+      }
     }
     return success
   }
