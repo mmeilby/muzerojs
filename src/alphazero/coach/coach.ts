@@ -7,7 +7,7 @@ import { ReplayBuffer } from '../replaybuffer/replaybuffer'
 import { SelfPlay } from '../selfplay/selfplay'
 import { Arena } from './arena'
 import { Network } from '../networks/nnet'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
 import debugFactory from 'debug'
 const debug = debugFactory('alphazero:coach:module')

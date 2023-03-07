@@ -3,7 +3,7 @@ import { NimNetModel } from './alphazero/games/nim/nimmodel'
 import { Config } from './alphazero/games/core/config'
 import { Coach } from './alphazero/coach/coach'
 import { NNet } from './alphazero/networks/network'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
 import debugFactory from 'debug'
 const debug = debugFactory('alphazero:alphazero:debug')

@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import {NetworkOutput} from './networkoutput'
 import {Batch} from '../replaybuffer/batch'
 import {Network, Observation} from './nnet'
