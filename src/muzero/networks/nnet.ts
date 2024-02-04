@@ -11,7 +11,7 @@ export interface MuZeroHiddenState {
 export interface MuZeroNetwork<Action> {
   initialInference: (obs: MuZeroObservation) => NetworkOutput
   recurrentInference: (hiddenState: MuZeroHiddenState, action: Action) => NetworkOutput
-  trainInference: (samples: Array<MuZeroBatch<Actionwise>>) => Promise<number[]>
+  trainInference: (samples: Array<MuZeroBatch<Actionwise>>) => number[]
   save: (path: string) => Promise<void>
   load: (path: string) => Promise<void>
   copyWeights: (network: MuZeroNetwork<Action>) => void

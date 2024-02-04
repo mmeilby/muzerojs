@@ -57,9 +57,9 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
 
-  public async trainInference (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
-    // Return the perfect loss vector
-    return await Promise.resolve(samples.map(() => 0))
+  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
+    // Return the perfect loss and accuracy of 100%
+    return [0, 1]
   }
 
   public async save (path: string): Promise<void> {

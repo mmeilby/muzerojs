@@ -165,6 +165,23 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   }
 
   /**
+   * randomChoice - make a weighted random choice based on the policy applied
+   * @param policy Policy containing a normalized probability vector
+   * @returns The action index of the policy with the most probability randomly chosen
+   * @protected
+   */
+  public randomChoice (policy: number[]): number {
+    let i = 0
+    policy.reduce((s, p) => {
+      if (s - p >= 0) {
+        i++
+      }
+      return s - p
+    }, Math.random())
+    return i
+  }
+
+  /**
    * selectChild - Select the child node with the highest UCB score
    * @param node
    * @param minMaxStats

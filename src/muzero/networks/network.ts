@@ -1,13 +1,12 @@
 import * as tf from '@tensorflow/tfjs-node'
-import { LogMetrics, scalarToSupport, supportToScalar } from './utils'
-import { NetworkOutput } from './networkoutput'
-import { MuZeroBatch } from '../replaybuffer/batch'
-import { Actionwise } from '../selfplay/entities'
-import { Logs } from '@tensorflow/tfjs-node'
-import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
+import {Logs, scalar, Scalar, Tensor, tensor} from '@tensorflow/tfjs-node'
+import {LogMetrics, scalarToSupport, supportToScalar} from './utils'
+import {NetworkOutput} from './networkoutput'
+import {MuZeroBatch} from '../replaybuffer/batch'
+import {Actionwise} from '../selfplay/entities'
+import {MuZeroHiddenState, MuZeroNetwork, MuZeroObservation} from './nnet'
 import debugFactory from 'debug'
-import { MuZeroAction } from '../games/core/action'
-import {Observation} from "../../alphazero/networks/nnet";
+import {MuZeroTarget} from "../replaybuffer/target";
 
 const debug = debugFactory('muzero:network:debug')
 
@@ -23,6 +22,14 @@ class MuZeroNetHiddenState implements MuZeroHiddenState {
   ) {}
 }
 
+class Prediction {
+  constructor (
+    public scale: number,
+    public value: Tensor,
+    public reward: Tensor,
+    public policy: Tensor
+  ) {}
+}
 export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
@@ -40,6 +47,8 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
   private readonly valueScale: number
   // L2 weights regularization
   protected readonly weightDecay: number
+  // Learning rate for SGD
+  protected readonly learningRate: number
 
   private readonly initialInferenceModel: tf.LayersModel
   private readonly recurrentInferenceModel: tf.LayersModel
@@ -55,9 +64,10 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     this.hxSize = 32
     this.rewardSupportSize = 0
     this.valueSupportSize = 0
-    this.hiddenLayerSize = 128
+    this.hiddenLayerSize = 64
     this.valueScale = 0.25
     this.weightDecay = 0.0001
+    this.learningRate = learningRate
 
     this.actionSpaceN = actionSpace
 
@@ -78,16 +88,16 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       name: 'Initial Inference Model',
       inputs: observationInput,
       outputs: [
-        f.p.apply(f.ph.apply(representationLayer)) as tf.SymbolicTensor,
-        f.v.apply(f.vh.apply(representationLayer)) as tf.SymbolicTensor,
-        representationLayer as tf.SymbolicTensor
+        f.p.apply(f.ph.apply(representationLayer)) as tf.SymbolicTensor,    // f(h(o))->p
+        f.v.apply(f.vh.apply(representationLayer)) as tf.SymbolicTensor,    // f(h(o))->v
+        representationLayer as tf.SymbolicTensor                            // h(o)->s
       ]
     })
     this.initialInferenceModel.compile({
       optimizer: tf.train.sgd(learningRate),
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
-        prediction_value_output: valueLoss,
+        prediction_value_output: tf.losses.meanSquaredError,
         representation_state_output: tf.losses.absoluteDifference
       },
       metrics: ['acc']
@@ -103,17 +113,17 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       name: 'Recurrent Inference Model',
       inputs: actionPlaneInput,
       outputs: [
-        f.p.apply(f.ph.apply(dynamicsLayer)) as tf.SymbolicTensor,
-        f.v.apply(f.vh.apply(dynamicsLayer)) as tf.SymbolicTensor,
-        g.r.apply(g.rh.apply(actionPlaneInput)) as tf.SymbolicTensor,
-        dynamicsLayer as tf.SymbolicTensor
+        f.p.apply(f.ph.apply(dynamicsLayer)) as tf.SymbolicTensor,      // f(g(s,a))->p
+        f.v.apply(f.vh.apply(dynamicsLayer)) as tf.SymbolicTensor,      // f(g(s,a))->v
+        g.r.apply(g.rh.apply(actionPlaneInput)) as tf.SymbolicTensor,   // g(s,a)->r
+        dynamicsLayer as tf.SymbolicTensor                              // g(s,a)->s
       ]
     })
     this.recurrentInferenceModel.compile({
       optimizer: tf.train.sgd(learningRate),
       loss: {
         prediction_policy_output: tf.losses.softmaxCrossEntropy,
-        prediction_value_output: valueLoss,
+        prediction_value_output: tf.losses.meanSquaredError,
         dynamics_reward_output: tf.losses.meanSquaredError,
         dynamics_state_output: tf.losses.absoluteDifference
       },
@@ -224,7 +234,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * @param hiddenState
    * @param action
    */
-  public recurrentInference (hiddenState: MuZeroHiddenState, action: Action): NetworkOutput {
+  public recurrentInference (hiddenState: MuZeroHiddenState, action: Actionwise): NetworkOutput {
     if (!(hiddenState instanceof MuZeroNetHiddenState)) {
       throw new Error(`Incorrect hidden state applied to recurrentInference`)
     }
@@ -237,11 +247,79 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
 
+  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
+    debug(`Training batch of size=${samples.length}`)
+    const lossFunc = (): Scalar => {
+      let loss = tf.scalar(0)
+      for (const batch of samples) {
+        const predictions = this.calculatePredictions(batch)
+        loss = loss.add(this.measureLoss(predictions, batch.targets))
+      }
+      loss = loss.div(samples.length)
+      // add penalty for large weights
+      const regularizer = tf.regularizers.l2({ l2: this.weightDecay })
+      for (const weights of this.getWeights()) {
+        loss = loss.add(regularizer.apply(weights))
+      }
+      return loss
+    }
+    const optimizer = tf.train.sgd(this.learningRate)
+    const totalLoss = tf.tidy(() => {
+      // update weights
+      const loss = optimizer.minimize(lossFunc, true)
+      return loss?.bufferSync().get(0) ?? 0
+    })
+    optimizer.dispose()
+    return [totalLoss, 0]
+  }
+
+  public calculatePredictions (batch: MuZeroBatch<Actionwise>): Prediction[] {
+    const observation = tf.tensor2d((batch.image as MuZeroNetObservation).state)
+    const [tfPolicy, tfValue, tfHiddenState] =
+        this.initialInferenceModel.predict(observation.reshape([1, -1])) as tf.Tensor[]
+    const predictions: Prediction[] = [{
+      scale: 1,
+      value: tfValue,
+      reward: tensor(0),
+      policy: tfPolicy
+    }]
+    let state = tfHiddenState
+    for (const action of batch.actions) {
+      const conditionedHiddenState = tf.concat([state, this.policyTransform(action.id)], 1)
+      const [tfPolicy, tfValue, tfReward, tfNewHiddenState] =
+          this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
+      predictions.push({
+        scale: 1/batch.actions.length,
+        value: tfValue,
+        reward: tfReward,
+        policy: tfPolicy
+      })
+      state = this.scaleGradient(tfNewHiddenState, 0.5)
+    }
+    return predictions
+  }
+
+  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): Scalar {
+    let loss = tf.scalar(0)
+    for (let i=0; i<predictions.length; i++) {
+      const prediction = predictions[i]
+      const target = targets[i]
+      const lossV = this.scalarLoss(prediction.value, this.valueTransform(target.value))
+      const lossR = i > 0 ? this.scalarLoss(prediction.reward, this.valueTransform(target.reward)) : tf.scalar(0)
+      const lossP = target.policy.length > 0 ?
+          tf.losses.softmaxCrossEntropy(this.policyPredict(target.policy), prediction.policy).asScalar() :
+          tf.scalar(0)
+      const lossBatch = lossV.add(lossR).add(lossP)
+      loss = loss.add(this.scaleGradient(lossBatch, prediction.scale))
+    }
+    return loss
+  }
+
   /**
    * trainInference
    * @param samples
    */
-  public async trainInference (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
+  public async trainInferenceX (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
     const masterLog: LogMetrics[] = []
     //    const metrics: Map<string, LogMetrics[]> = new Map<string, LogMetrics[]>([
     //        ['policy', []], ['value', []], ['reward', []]
@@ -461,6 +539,11 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       network.recurrentInferenceModel.setWeights(this.recurrentInferenceModel.getWeights())
     })
   }
+
+  public getWeights (): Tensor[] {
+    return this.initialInferenceModel.getWeights().concat(this.recurrentInferenceModel.getWeights())
+  }
+
 /*
   private dispose (): number {
     let disposed = 0
@@ -473,4 +556,26 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return 1
   }
 */
+  /**
+   * MSE in board games, cross entropy between categorical values in Atari
+   * @param prediction
+   * @param target
+   * @private
+   */
+  private scalarLoss (prediction: Tensor, target: Tensor): Scalar {
+    return tf.losses.meanSquaredError(target, prediction).asScalar()
+  }
+  /**
+   * Scales the gradient for the backward pass
+   * @param tensor
+   * @param scale
+   * @private
+   */
+  private scaleGradient (tensor: Tensor, scale: number): Tensor {
+    // Perform the operation: tensor * scale + tf.stop_gradient(tensor) * (1 - scale)
+    return tf.tidy(() => {
+      const tidyTensor = tf.variable(tensor, false)
+      return tensor.mul(scale).add(tidyTensor.mul(1-scale))
+    })
+  }
 }

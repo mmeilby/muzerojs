@@ -27,7 +27,7 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
         await storage.saveNetwork(step, network)
       }
       const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
-      const [losses, accuracy] = await network.trainInference(batchSamples)
+      const [losses, accuracy] = network.trainInference(batchSamples)
       debug(`Mean loss: step #${step} ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
       if (tf.memory().numTensors - useBaseline > 0) {
         debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline}`)

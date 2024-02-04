@@ -24,7 +24,7 @@ export class MuZeroUniformNetwork<State extends Playerwise, Action extends Actio
     return new NetworkOutput(0, 0, policy, newHiddenState)
   }
 
-  public async trainInference (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
+  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
     // A uniform network should never be trained
     throw new Error('Training has been attempted on a uniform mocked network. This is not allowed.')
   }

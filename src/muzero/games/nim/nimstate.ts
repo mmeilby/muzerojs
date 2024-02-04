@@ -27,7 +27,16 @@ export class MuZeroNimState implements Playerwise {
     return this._history
   }
 
+  public actionToString (id: number): string {
+    if (id < 0) {
+      return 'H?-?'
+    }
+    const heap = Math.floor(id / config.heapSize) + 1
+    const nimmingSize = id % config.heapSize + 1
+    return `H${heap}-${nimmingSize}`
+  }
+
   public toString (): string {
-    return `${this._key} | ${this._history.length > 0 ? this._history.map(a => `${Math.floor(a.id / config.heapSize) + 1}->${a.id % config.heapSize + 1}`).join(':') : '*'} | ${this._board.join('-')}`
+    return `${this._key} | ${this._history.length > 0 ? this._history.map(a => this.actionToString(a.id)).join(':') : '*'} | ${this._board.join('-')}`
   }
 }

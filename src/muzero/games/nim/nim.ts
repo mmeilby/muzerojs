@@ -52,6 +52,10 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     return legal
   }
 
+  public action (id: number): MuZeroAction {
+    return new MuZeroAction(id)
+  }
+
   private haveWinner (state: MuZeroNimState, player?: number): number {
     const ply = player ?? state.player
     const pinsLeft = state.board.reduce((s, p) => s + p, 0)
@@ -106,6 +110,67 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     }
     scoreTable.sort((a, b) => b.score - a.score)
     return scoreTable.length > 0 ? scoreTable[0].action : new MuZeroAction(-1)
+  }
+
+  public expertActionEnhanced (state: MuZeroNimState): number[] {
+    debug(`Expert action requested for: ${this.toString(state)}`)
+    const actions = this.legalActions(state)
+    const scoreTable = []
+    for (const action of actions) {
+      const heap = Math.floor(action.id / config.heapSize)
+      const nimmingSize = action.id % config.heapSize + 1
+      if (state.board[heap] >= nimmingSize) {
+        const newBoard = [...state.board]
+        newBoard[heap] -= nimmingSize
+        const binaryDigitalSum = newBoard.reduce((s, p) => s ^ p, 0)
+        const maxPinsInHeap = newBoard.reduce((s, p) => Math.max(s, p), 0)
+        const nonEmptyHeaps = newBoard.reduce((s, p) => p > 0 ? s + 1 : s, 0)
+        debug(`${this.actionToString(action.id)}: bds=${binaryDigitalSum}`)
+        debug(`maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps}`)
+        let opportunity = false
+        if (config.misereGame) {
+          if (maxPinsInHeap === 1) {
+            // One stick left in an odd number of heaps is an opportunity
+            opportunity = binaryDigitalSum === 1
+          } else {
+            // General case
+            opportunity = nonEmptyHeaps > 1 && binaryDigitalSum === 0
+          }
+        } else {
+          if (maxPinsInHeap === 1) {
+            // One stick left in an even number of heaps is an opportunity
+            opportunity = binaryDigitalSum === 0
+          } else {
+            // General case
+            opportunity = nonEmptyHeaps !== 1 && binaryDigitalSum === 0
+          }
+        }
+        scoreTable.push({ action, score: opportunity ? 1 : -1 })
+      }
+    }
+    scoreTable.sort((a, b) => b.score - a.score)
+    debug(`Scoretable: \n${scoreTable.map(st => {
+      return `${this.actionToString(st.action.id)}: ${st.score}`
+    })}`)
+
+    const policy: number[] = new Array<number>(this.config().actionSpaceSize).fill(0)
+    scoreTable.forEach(s => { policy[s.action.id] = s.score })
+    if (policy.every(p => p <= 0)) {
+      const sum = policy.reduce((s, p) => s - p)
+      return policy.map(p => p < 0 ? 1 / sum : 0)
+    } else {
+      const sum = policy.filter(p => p > 0).reduce((s, p) => s + p)
+      return policy.map(p => p > 0 ? 1 / sum : 0)
+    }
+  }
+
+  public actionToString (id: number): string {
+    if (id < 0) {
+      return 'H?-?'
+    }
+    const heap = Math.floor(id / config.heapSize) + 1
+    const nimmingSize = id % config.heapSize + 1
+    return `H${heap}-${nimmingSize}`
   }
 
   public toString (state: MuZeroNimState): string {
