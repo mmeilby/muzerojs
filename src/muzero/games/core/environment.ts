@@ -9,7 +9,7 @@ import { ApplyAction, CalculateReward, GenerateActions, Playerwise, StateIsTermi
  *   - reset of the system/game
  *   - applying an action to the system/game
  *   - reward and end-state of the last action applied
- *   - data.copy(1) management of the trained network
+ *   - data.old.copy(1) management of the trained network
  *   - best guess for best next action
  *   - logging
  */

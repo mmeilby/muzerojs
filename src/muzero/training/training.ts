@@ -1,17 +1,18 @@
-import { MuZeroSharedStorage } from './sharedstorage'
-import { MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
+import { type MuZeroSharedStorage } from './sharedstorage'
+import { type MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
 import * as tf from '@tensorflow/tfjs-node'
 
-import { Actionwise, Playerwise } from '../selfplay/entities'
+import { type Actionwise, type Playerwise } from '../selfplay/entities'
 
 import debugFactory from 'debug'
-import { MuZeroConfig } from '../games/core/config'
+import { type MuZeroConfig } from '../games/core/config'
 
 const debug = debugFactory('muzero:training:module')
 
 export class MuZeroTraining<State extends Playerwise, Action extends Actionwise> {
   constructor (
-    private readonly config: MuZeroConfig
+    private readonly config: MuZeroConfig,
+    private trainingStep = 0
   ) {}
 
   public async trainNetwork (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
@@ -30,12 +31,29 @@ export class MuZeroTraining<State extends Playerwise, Action extends Actionwise>
       const [losses, accuracy] = network.trainInference(batchSamples)
       debug(`Mean loss: step #${step} ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
       if (tf.memory().numTensors - useBaseline > 0) {
-        debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline}`)
+        debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
         useBaseline = tf.memory().numTensors
       }
       await tf.nextFrame()
     }
     await storage.saveNetwork(this.config.trainingSteps, network)
+  }
+
+  public async trainSingleInteration (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
+    // Get a private copy of a new untrained network
+    const network = storage.initialize()
+    // Update the copy with the weights of a potentially loaded network
+    storage.latestNetwork().copyWeights(network)
+    ++this.trainingStep
+    const useBaseline = tf.memory().numTensors
+    const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
+//     debug(JSON.stringify(batchSamples))
+    const [losses, accuracy] = network.trainInference(batchSamples)
+    debug(`Mean loss: step #${this.trainingStep} ${losses.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
+    if (tf.memory().numTensors - useBaseline > 0) {
+      debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
+    }
+    await storage.saveNetwork(this.trainingStep, network)
   }
 
   /**

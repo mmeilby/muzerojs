@@ -1,23 +1,23 @@
-import { MuZeroModel } from '../core/model'
-import { MuZeroNimState } from './nimstate'
-import { config } from './nimconfig'
-import { MuZeroObservation } from '../../networks/nnet'
+import { type MuZeroModel } from '../core/model'
+import { type MuZeroNimState } from './nimstate'
+import { config, util } from './nimconfig'
+import { type MuZeroObservation } from '../../networks/nnet'
 import { MuZeroNetObservation } from '../../networks/network'
 
 export class NimNetModel implements MuZeroModel<MuZeroNimState> {
   get observationSize (): number {
-    return config.heaps * config.heapSize
+    return util.heapMap.reduce((s, h) => s + h, 0)
   }
 
   public observation (state: MuZeroNimState): MuZeroObservation {
     const board: number[][] = []
     for (let i = 0; i < config.heaps; i++) {
-      const pins: number[] = new Array<number>(config.heapSize).fill(0)
+      const pins: number[] = new Array<number>(util.heapMap[i]).fill(0)
       for (let j = 0; j < state.board[i]; j++) {
         pins[j] = 1
       }
       board.push(pins)
     }
-    return new MuZeroNetObservation(board)
+    return new MuZeroNetObservation(board.flat())
   }
 }

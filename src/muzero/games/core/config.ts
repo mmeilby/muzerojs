@@ -39,7 +39,7 @@ export class MuZeroConfig {
   private _maxMoves?: number
   // Chronological discount of the reward. Defaults to 1.0
   private _discount?: number
-  // The multiplier by which to decay the reward in the backpropagtion phase. Defaults to 1.
+  // The multiplier by which to decay the reward in the backpropagtion phase. Defaults to 1.0
   private _decayingParam?: number
   // Exploration noise to include when exploring possible actions.
   // In order to ensure that the Monte Carlo Tree Search explores a range of possible actions

@@ -34,11 +34,11 @@ export class MuZeroUniformNetwork<State extends Playerwise, Action extends Actio
   }
 
   public async load (path: string): Promise<void> {
-    // We can't load any data to a uniform network
+    // We can't load any data.old to a uniform network
     throw new Error('Load weights has been attempted on a uniform mocked network. This is not allowed.')
   }
 
   public copyWeights (network: MuZeroNetwork<Action>): void {
-    // A uniform network does not have any data to copy - leave the target network untouched
+    // A uniform network does not have any data.old to copy - leave the target network untouched
   }
 }

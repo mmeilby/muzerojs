@@ -1,4 +1,4 @@
-import { Actionwise } from '../../selfplay/entities'
+import { type Actionwise } from '../../selfplay/entities'
 
 export class MuZeroAction implements Actionwise {
   private readonly index: number

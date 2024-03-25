@@ -67,11 +67,11 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
   }
 
   public async load (path: string): Promise<void> {
-    // We can't load any data to a mocked network - ignore
+    // We can't load any data.old to a mocked network - ignore
   }
 
   public copyWeights (network: MuZeroNetwork<Action>): void {
-    // A mocked network does not have any data to copy - leave the target network untouched
+    // A mocked network does not have any data.old to copy - leave the target network untouched
   }
 
   private policyTransform (policy: number): tf.Tensor {

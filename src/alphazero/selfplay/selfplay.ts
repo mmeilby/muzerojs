@@ -45,7 +45,7 @@ export class SelfPlay<State extends Statewise, Action extends Actionwise> {
     const dataStore = new TranspositionTable<State>(new Map())
     const gameHistory = new GameHistory(this.env)
     const rootNode: MCTSNode<State, Action> = new MCTSNode(this.mctsState(gameHistory.state, dataStore), gameHistory.state.player)
-    // Play a game from start to end, register target data on the fly for the game history
+    // Play a game from start to end, register target data.old on the fly for the game history
     for (let node = rootNode; !gameHistory.terminal() && gameHistory.recordedSteps() < this.config.maxMoves;) {
       const temp = gameHistory.episodeStep() < this.config.temperatureThreshold ? 1 : 0
       const pi = this.getActionProp(node, dataStore, temp)
@@ -105,7 +105,7 @@ export class SelfPlay<State extends Statewise, Action extends Actionwise> {
    *          proportional to Nsa[(s,a)]**(1./temp)
    *
    * @param rootNode The node to start the tree search from
-   * @param dataStore The data store to keep track of the visit counts and discounted rewards
+   * @param dataStore The data.old store to keep track of the visit counts and discounted rewards
    * @param temp The temperature used for policy determination
    */
   private getActionProp (

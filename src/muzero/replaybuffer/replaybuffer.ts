@@ -21,6 +21,10 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
   public numPlayedSteps: number
   public totalSamples: number
 
+  get totalGames (): number {
+    return this.buffer.length
+  }
+
   /**
    *
    * @param config
@@ -46,6 +50,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     this.numPlayedSteps = 0
     this.totalSamples = 0
   }
+
 
   /**
    * saveGame
@@ -127,7 +132,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       let threshold = Math.random() * total
       // Now we just need to loop through the replay buffer one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data.copy(1) set since there will be no need
+      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; gameIndex < gameProbs.length - 1; ++gameIndex) {
         // Add the weight to our running total.
@@ -161,9 +166,9 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
       // Total in hand, we can now pick a random value akin to our
       // random index from before.
       let threshold = Math.random() * total
-      // Now we just need to loop through the main data.copy(1) one more time
+      // Now we just need to loop through the main data.old.copy(1) one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data.copy(1) set since there will be no need
+      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; positionIndex < gameHistory.priorities.length - 1; ++positionIndex) {
         // Reduce our running total with the priority
@@ -186,7 +191,7 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
     model: MuZeroModel<State>
   ): void {
     try {
-      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
+      const json = fs.readFileSync('./data.old/games.json', { encoding: 'utf8' })
       if (json !== null) {
         this.buffer = new MuZeroGameHistory(environment, model).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
@@ -200,6 +205,6 @@ export class MuZeroReplayBuffer<State extends Playerwise, Action extends Actionw
 
   public storeSavedGames (): void {
     const stream = JSON.stringify(this.buffer.map(gh => gh.serialize()))
-    fs.writeFileSync('./data/games.json', stream, 'utf8')
+    fs.writeFileSync('./data.old/games.json', stream, 'utf8')
   }
 }

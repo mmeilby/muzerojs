@@ -1,8 +1,9 @@
 import { MuZeroAction } from '../core/action'
-import { MuZeroEnvironment } from '../core/environment'
+import { type MuZeroEnvironment } from '../core/environment'
 import { MuZeroNimState } from './nimstate'
-import { config } from './nimconfig'
+import { config, util } from './nimconfig'
 import debugFactory from 'debug'
+import { MuZeroNimUtil } from './nimutil'
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -13,6 +14,8 @@ const debug = debugFactory('muzero:nim:module')
  * https://en.wikipedia.org/wiki/Nim
  */
 export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction> {
+  private readonly support = new MuZeroNimUtil()
+
   /**
    * config
    *  actionSpaceSize number of actions allowed for this game
@@ -20,24 +23,20 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
    */
   config (): { actionSpaceSize: number, boardSize: number } {
     return {
-      actionSpaceSize: config.heaps * config.heapSize,
+      actionSpaceSize: util.heapMap.reduce((s, h) => s + h, 0),
       boardSize: config.heaps
     }
   }
 
   public reset (): MuZeroNimState {
-    const board: number[] = []
-    let pins = config.heapSize
-    for (let i = 0; i < config.heaps; i++) {
-      board.unshift(config.evenDistributed ? config.heapSize : pins--)
-    }
+    const board: number[] = [...util.heapMap]
     return new MuZeroNimState(1, board, [])
   }
 
   public step (state: MuZeroNimState, action: MuZeroAction): MuZeroNimState {
     const boardCopy = [...state.board]
-    const heap = Math.floor(action.id / config.heapSize)
-    const nimmingSize = action.id % config.heapSize + 1
+    const heap = this.support.actionToHeap(action.id)
+    const nimmingSize = this.support.actionToNimming(action.id) + 1
     boardCopy[heap] = boardCopy[heap] < nimmingSize ? 0 : boardCopy[heap] - nimmingSize
     return new MuZeroNimState(-state.player, boardCopy, state.history.concat([action]))
   }
@@ -46,23 +45,31 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     const legal = []
     for (let i = 0; i < config.heaps; i++) {
       for (let id = 0; id < state.board[i]; id++) {
-        legal.push(new MuZeroAction(i * config.heapSize + id))
+        legal.push(this.support.heapNimmingToAction(i, id))
       }
     }
     return legal
   }
 
-  public action (id: number): MuZeroAction {
-    return new MuZeroAction(id)
-  }
-
-  private haveWinner (state: MuZeroNimState, player?: number): number {
-    const ply = player ?? state.player
+  /**
+   * haveWinner - return the id of the player winning the game
+   * The id returned would be
+   *    1 - player 1 wins
+   *    -1 - player 2 wins
+   *    0 - not possible to claim a winner
+   * @param state The state for which the current player will be evaluated
+   * @private
+   */
+  private haveWinner (state: MuZeroNimState): number {
     const pinsLeft = state.board.reduce((s, p) => s + p, 0)
     if (pinsLeft === 0) {
-      return config.misereGame ? ply : -ply
+      // The case where previous player has removed the last pin
+      // For misére games this defines the current player to win
+      return config.misereGame ? state.player : -state.player
     } else if (pinsLeft === 1) {
-      return config.misereGame ? -ply : ply
+      // The case when there is only one pin left
+      // For misére games this is a loosing situation
+      return config.misereGame ? -state.player : state.player
     } else {
       return 0
     }
@@ -78,54 +85,53 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
    * @param player
    */
   public reward (state: MuZeroNimState, player: number): number {
-    const winner = this.haveWinner(state)
     // haveWinner returns the player id of a winning party,
+    const winner = this.haveWinner(state)
     // so we have to switch the sign if player id is negative
     return winner === 0 ? 0 : winner * player
   }
 
   public terminal (state: MuZeroNimState): boolean {
-    return this.haveWinner(state) !== 0 || this.legalActions(state).length === 0
+    return this.haveWinner(state) !== 0 // || this.legalActions(state).length === 0
   }
 
   public expertAction (state: MuZeroNimState): MuZeroAction {
-    const actions = this.legalActions(state)
-    const binaryDigitalSum = state.board.reduce((s, p) => s ^ p, 0)
-    const maxPinsInHeap = state.board.reduce((s, p) => Math.max(s, p), 0)
-    const nonEmptyHeaps = state.board.reduce((s, p) => p > 0 ? s + 1 : s, 0)
-    debug(`binaryDigitalSum=${binaryDigitalSum} maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps}`)
-    const scoreTable = []
-    for (const action of actions) {
-      const heap = Math.floor(action.id / config.heapSize)
-      const nimmingSize = action.id % config.heapSize + 1
-      if (state.board[heap] >= nimmingSize) {
-        const bds = binaryDigitalSum ^ state.board[heap] ^ (state.board[heap] - nimmingSize)
-        debug(`${action.id}: ${bds}`)
-        const opportunity =
-            ((maxPinsInHeap === 1 || nonEmptyHeaps === 1) && config.misereGame && bds === 1) ||
-            ((maxPinsInHeap === 1 || nonEmptyHeaps === 1) && !config.misereGame && bds === 0) ||
-            (maxPinsInHeap > 1 && nonEmptyHeaps > 1 && bds === 0)
-        scoreTable.push({ action, score: opportunity ? Math.random() : -Math.random() })
-      }
+    const scoreTable = this.rankMoves(state)
+    if (scoreTable.length > 0) {
+      const topActions = scoreTable.filter(st => st.score === scoreTable[0].score).map(st => st.action)
+      return topActions[Math.floor(Math.random() * topActions.length)]
+    } else {
+      return new MuZeroAction(-1)
     }
-    scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : new MuZeroAction(-1)
   }
 
-  public expertActionEnhanced (state: MuZeroNimState): number[] {
-    debug(`Expert action requested for: ${this.toString(state)}`)
+  public expertActionPolicy (state: MuZeroNimState): number[] {
+    const scoreTable = this.rankMoves(state)
+    const policy: number[] = new Array<number>(this.config().actionSpaceSize).fill(0)
+    scoreTable.forEach(s => { policy[s.action.id] = s.score })
+    if (policy.every(p => p <= 0)) {
+      const sum = policy.reduce((s, p) => s - p)
+      return policy.map(p => p < 0 ? 1 / sum : 0)
+    } else {
+      const sum = policy.filter(p => p > 0).reduce((s, p) => s + p)
+      return policy.map(p => p > 0 ? 1 / sum : 0)
+    }
+  }
+
+  private rankMoves (state: MuZeroNimState): Array<{ action: MuZeroAction, score: number }> {
+    debug(`Move ranking requested for: ${this.toString(state)}`)
     const actions = this.legalActions(state)
-    const scoreTable = []
+    const scoreTable: Array<{ action: MuZeroAction, score: number }> = []
     for (const action of actions) {
-      const heap = Math.floor(action.id / config.heapSize)
-      const nimmingSize = action.id % config.heapSize + 1
+      const heap = this.support.actionToHeap(action.id)
+      const nimmingSize = this.support.actionToNimming(action.id) + 1
       if (state.board[heap] >= nimmingSize) {
         const newBoard = [...state.board]
         newBoard[heap] -= nimmingSize
         const binaryDigitalSum = newBoard.reduce((s, p) => s ^ p, 0)
         const maxPinsInHeap = newBoard.reduce((s, p) => Math.max(s, p), 0)
         const nonEmptyHeaps = newBoard.reduce((s, p) => p > 0 ? s + 1 : s, 0)
-        debug(`${this.actionToString(action.id)}: bds=${binaryDigitalSum}`)
+        debug(`${this.support.actionToString(action)}: bds=${binaryDigitalSum}`)
         debug(`maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps}`)
         let opportunity = false
         if (config.misereGame) {
@@ -145,32 +151,20 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
             opportunity = nonEmptyHeaps !== 1 && binaryDigitalSum === 0
           }
         }
-        scoreTable.push({ action, score: opportunity ? 1 : -1 })
+        scoreTable.push({
+          action,
+          score: opportunity ? 1 : -1
+        })
       }
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    debug(`Scoretable: \n${scoreTable.map(st => {
-      return `${this.actionToString(st.action.id)}: ${st.score}`
-    })}`)
-
-    const policy: number[] = new Array<number>(this.config().actionSpaceSize).fill(0)
-    scoreTable.forEach(s => { policy[s.action.id] = s.score })
-    if (policy.every(p => p <= 0)) {
-      const sum = policy.reduce((s, p) => s - p)
-      return policy.map(p => p < 0 ? 1 / sum : 0)
-    } else {
-      const sum = policy.filter(p => p > 0).reduce((s, p) => s + p)
-      return policy.map(p => p > 0 ? 1 / sum : 0)
+    if (debug.enabled) {
+      const scoreTableString = scoreTable.map(st => {
+        return `${this.support.actionToString(st.action)}: ${st.score}`
+      }).toString()
+      debug(`Scoretable: \n${scoreTableString}`)
     }
-  }
-
-  public actionToString (id: number): string {
-    if (id < 0) {
-      return 'H?-?'
-    }
-    const heap = Math.floor(id / config.heapSize) + 1
-    const nimmingSize = id % config.heapSize + 1
-    return `H${heap}-${nimmingSize}`
+    return scoreTable
   }
 
   public toString (state: MuZeroNimState): string {

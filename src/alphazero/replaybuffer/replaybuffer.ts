@@ -134,7 +134,7 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
       let threshold = Math.random() * total
       // Now we just need to loop through the replay buffer one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data.copy(1) set since there will be no need
+      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; gameIndex < gameProbs.length - 1; ++gameIndex) {
         // Add the weight to our running total.
@@ -170,9 +170,9 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
       // Total in hand, we can now pick a random value akin to our
       // random index from before.
       let threshold = Math.random() * total
-      // Now we just need to loop through the main data.copy(1) one more time
+      // Now we just need to loop through the main data.old.copy(1) one more time
       // until we discover which value would live within this
-      // particular threshold. Stop before last data.copy(1) set since there will be no need
+      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
       // for checking the threshold if we get so far
       for (; positionIndex < gameHistory.priorities.length - 1; ++positionIndex) {
         // Reduce our running total with the priority
@@ -194,7 +194,7 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
   public loadSavedGames (): boolean {
     let success = false
     try {
-      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
+      const json = fs.readFileSync('./data.old/games.json', { encoding: 'utf8' })
       if (json !== null) {
         this.buffer = new GameHistory(this.environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.recordedSteps(), 0)
@@ -203,7 +203,7 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
         success = true
       }
     } catch (e) {
-      // Error: ENOENT: no such file or directory, open './data/games.json'
+      // Error: ENOENT: no such file or directory, open './data.old/games.json'
       if (!(e as Error).message.includes('ENOENT')) {
         debug(e)
       }
@@ -213,6 +213,6 @@ export class ReplayBuffer<State extends Statewise, Action extends Actionwise> {
 
   public storeSavedGames (): void {
     const stream = JSON.stringify(this.buffer.map(gh => gh.serialize()))
-    fs.writeFileSync('./data/games.json', stream, 'utf8')
+    fs.writeFileSync('./data.old/games.json', stream, 'utf8')
   }
 }

@@ -1,6 +1,6 @@
-import { NetworkOutput } from './networkoutput'
-import { MuZeroBatch } from '../replaybuffer/batch'
-import { Actionwise } from '../selfplay/entities'
+import { type NetworkOutput } from './networkoutput'
+import { type MuZeroBatch } from '../replaybuffer/batch'
+import { type Actionwise } from '../selfplay/entities'
 
 export interface MuZeroObservation {
 }

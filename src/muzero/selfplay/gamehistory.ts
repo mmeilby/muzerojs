@@ -40,7 +40,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     this.environment = environment
     this.model = model
     this._state = environment.reset()
-    this.observationHistory = []
+    this.observationHistory = [this.model.observation(this._state)]
     this.actionHistory = []
     this.rewards = []
     this.toPlayHistory = []
@@ -65,11 +65,11 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   }
 
   public apply (action: Action): State {
-    this.observationHistory.push(this.model.observation(this._state))
     const state = this.environment.step(this._state, action)
-    this.rewards.push(this.environment.reward(state, state.player))
+    this.observationHistory.push(this.model.observation(state))
+    this.rewards.push(this.environment.reward(state, this._state.player))
     this.actionHistory.push(action)
-    this.toPlayHistory.push(state.player)
+    this.toPlayHistory.push(this._state.player)
     this._state = state
     return state
   }
@@ -80,17 +80,18 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   }
 
   public makeImage (stateIndex: number): MuZeroObservation {
-    // Game specific feature planes.
-    // Convert to positive index
-    const index = stateIndex % this.observationHistory.length
-    return this.observationHistory[index] ?? this.model.observation(this._state)
+    const image = this.observationHistory.at(stateIndex)
+    if (image === undefined) {
+      throw new Error(`Invalid index used for makeImage(${stateIndex})`)
+    }
+    return image
   }
 
   /**
    * makeTarget -
    * The value target is the discounted root value of the search tree N steps
    * into the future, plus the discounted sum of all rewards until then.
-   * @param stateIndex Start index for target values
+   * @param stateIndex Start index for target values (negative index is allowed)
    * @param numUnrollSteps Number of consecutive game moves to generate target values for
    * @param tdSteps Number of steps in the future to take into account for calculating
    * the target value
@@ -98,12 +99,12 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
    */
   public makeTarget (stateIndex: number, numUnrollSteps: number, tdSteps: number, discount: number): MuZeroTarget[] {
     // Convert to positive index
-    const index = stateIndex % this.observationHistory.length
+    const index = stateIndex % this.actionHistory.length
     const targets = []
     if (index < this.rootValues.length) {
       targets.push({
         value: this.computeTargetValue(index, tdSteps, discount),
-        reward: 0,
+        reward: this.rewards[index],
         policy: this.childVisits[index]
       })
     } else {
@@ -114,7 +115,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
       if (currentIndex < this.rootValues.length) {
         targets.push({
           value: this.computeTargetValue(currentIndex, tdSteps, discount),
-          reward: this.rewards[currentIndex - 1],
+          reward: this.rewards[currentIndex],
           policy: this.childVisits[currentIndex]
         })
       } else {
@@ -129,7 +130,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
    * computeTargetValue - calculate the discounted root value of the game history at index
    * The value target is the discounted root value of the search tree tdSteps into the
    * future, plus the discounted sum of all rewards until then.
-   * @param index
+   * @param index Positive index
    * @param tdSteps Number of steps in the future to take into account for calculating
    * @param discount Chronological discount of the reward
    * @private

@@ -64,7 +64,7 @@ export class Config {
   public trainingSteps: number
   // Total number of training iterations for each training step
   public epochs: number
-  // Total number data sets to be used for validation
+  // Total number data.old sets to be used for validation
   public validationSize: number
   // Number of gradient updates per training step
   public gradientUpdateFreq: number

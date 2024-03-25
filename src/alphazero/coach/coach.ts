@@ -38,7 +38,7 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
     const mmodel = new MockedModel<State>()
     const replayBuffer = new ReplayBuffer<State, Action>(this.config, this.env)
     try {
-      await network.load('file://data/')
+      await network.load('file://data.old/')
       debug('Network loaded')
     } catch (e) {
       debug(`Network initialized randomly`)
@@ -80,7 +80,7 @@ export class Coach<State extends Statewise, Action extends Actionwise> {
         pnet.copyWeights(network)
       } else {
         debug('ACCEPTING NEW MODEL')
-        await network.save('file://data/')
+        await network.save('file://data.old/')
       }
       pnet.dispose()
     }

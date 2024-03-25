@@ -1,19 +1,21 @@
-import { MuZeroSharedStorage } from '../training/sharedstorage'
-import { MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
+import { type MuZeroSharedStorage } from '../training/sharedstorage'
+import { type MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
 import { MuZeroGameHistory } from './gamehistory'
-import { MuZeroModel } from '../games/core/model'
-import { Actionwise, MCTSNode, MCTSState, Normalizer, Playerwise } from './entities'
-import { MuZeroEnvironment } from '../games/core/environment'
+import { type MuZeroModel } from '../games/core/model'
+import { type Actionwise, MCTSNode, MCTSState, Normalizer, type Playerwise } from './entities'
+import { type MuZeroEnvironment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node'
-import { TranspositionTable, DataGateway } from './data-store'
+import { TranspositionTable, type DataGateway } from './data-store'
 import debugFactory from 'debug'
-import { NetworkOutput } from '../networks/networkoutput'
-import { MuZeroConfig } from '../games/core/config'
-import { MuZeroNetwork } from '../networks/nnet'
+import { type NetworkOutput } from '../networks/networkoutput'
+import { type MuZeroConfig } from '../games/core/config'
+import { type MuZeroNetwork } from '../networks/nnet'
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
 const { jStat } = require('jstat')
-const debug = debugFactory('muzero:selfplay:module')
+const info = debugFactory('muzero:selfplay:info')
+const log = debugFactory('muzero:selfplay:log')
+const debug = debugFactory('muzero:selfplay:debug')
 
 /**
  * MuZeroSelfPlay - where the games are played
@@ -35,16 +37,31 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param replayBuffer
    */
   public async runSelfPlay (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
-    debug(`Self play initiated - running ${this.config.selfPlaySteps} steps`)
+    info(`Self play initiated - running ${this.config.selfPlaySteps} steps`)
     for (let sim = 0; sim < this.config.selfPlaySteps; sim++) {
       const network = storage.latestNetwork()
       const game = this.playGame(network)
       replayBuffer.saveGame(game)
-      debug(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
-      debug('Played: %s', game.state.toString())
+      log(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
+      log('Played: %s', game.state.toString())
       await tf.nextFrame()
     }
-    debug(`Self play completed - collected ${replayBuffer.totalSamples} samples`)
+    info(`Self play completed - collected ${replayBuffer.totalSamples} samples`)
+  }
+
+  /**
+   * selfPlay - play a single game and save it in the shared replay buffer
+   * @param network
+   * @param replayBuffer
+   */
+  public async selfPlay (network: MuZeroNetwork<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<MuZeroGameHistory<State, Action>> {
+    info('Self play initiated - running a single step')
+    const game = this.playGame(network)
+    replayBuffer.saveGame(game)
+    log(`Done playing a game with myself - collected ${game.rootValues.length} samples`)
+    log('Played: %s', game.state.toString())
+    info(`Total samples collected - ${replayBuffer.totalSamples} samples (${replayBuffer.totalGames}) - ${replayBuffer.numPlayedSteps}/${replayBuffer.numPlayedGames}`)
+    return game
   }
 
   /**
@@ -58,22 +75,26 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private playGame (network: MuZeroNetwork<Action>): MuZeroGameHistory<State, Action> {
     const dataStore = new TranspositionTable<State>(new Map())
     const gameHistory = new MuZeroGameHistory(this.env, this.model)
-    // Play a game from start to end, register target data on the fly for the game history
+    // Play a game from start to end, register target data.old on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network, dataStore)
       const action = this.selectAction(rootNode)
-      const recommendedAction = this.env.expertAction(gameHistory.state)
+      if (debug.enabled) {
+        const recommendedAction = this.env.expertAction(gameHistory.state)
+        debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
+      }
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
       debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
-      debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
     }
-    // Since policy and value data are referring to the state before action is committed
-    // we need a last set of data for the game history
-    const rootNode = this.runMCTS(gameHistory, network, dataStore)
-    gameHistory.storeSearchStatistics(rootNode)
-    debug(`--- STAT: actions=${gameHistory.actionHistory.length} values=${gameHistory.rootValues.length} rewards=${gameHistory.rewards.length}`)
-    debug(`--- REWARD: ${gameHistory.rewards.toString()}`)
+    // Since policy and value data.old are referring to the state before action is committed
+    // we need a last set of data.old for the game history
+//    const rootNode = this.runMCTS(gameHistory, network, dataStore)
+//     gameHistory.storeSearchStatistics(rootNode)
+    log(`--- STAT: actions=${gameHistory.actionHistory.length} values=${gameHistory.rootValues.length} rewards=${gameHistory.rewards.length}`)
+    log(`--- VALUES:  ${gameHistory.rootValues.toString()}`)
+    log(`--- REWARD:  ${gameHistory.rewards.toString()}`)
+    log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
     return gameHistory
   }
 
@@ -121,7 +142,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
             //            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
             const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, node.action)
             this.expandNode(node, networkOutput, dataStore)
-            this.backPropagate(node, networkOutput.nValue, rootNode.player, minMaxStats)
+            this.backPropagate(node, networkOutput.nValue, node.player, minMaxStats)
           } else {
             debug('Recurrent inference attempted on a root node')
             debug(`Node: ${JSON.stringify(node)}`)
@@ -245,6 +266,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     // save network predicted reward
     node.mctsState.reward = networkOutput.nReward
     // save network predicted value
+    // TODO: IS THIS RIGHT???????  valueAvg is not used!
     node.mctsState.valueAvg = networkOutput.nValue
     const policySum = networkOutput.policyMap.reduce((p: number, v: number) => p + v, 0)
     let action: Action | undefined
@@ -278,7 +300,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     while (child != null) {
       // register visit
       child.mctsState.visits++
-      child.mctsState.valueSum += child.player === player ? value : -value
+      child.mctsState.valueSum += child.samePlayer(player) ? value : -value
       minMaxStats.update(child.mctsState.value)
       // decay value and include network predicted reward
       value = child.mctsState.reward + this.config.decayingParam * value

@@ -157,6 +157,10 @@ export class MCTSNode<State, Action extends Actionwise> {
     return this.parent_
   }
 
+  samePlayer (player: number): boolean {
+    return this.player_ === player
+  }
+
   policy (actionSpace: number): number[] {
     const totalVisits = this.children.reduce((sum, child) => sum + child.mctsState.visits, 0)
     const policy: number[] = new Array(actionSpace).fill(0)
