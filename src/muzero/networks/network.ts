@@ -34,181 +34,127 @@ class Prediction {
 export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
-  // Length of the action tensors
-  protected readonly actionSpaceN: number
   // Length of the reward representation tensors (number of bins)
   protected readonly rewardSupportSize: number
   // Length of the value representation tensors (number of bins)
   protected readonly valueSupportSize: number
   // Size of hidden layer
-  public readonly hiddenLayerSize: number
+  public readonly hiddenLayerSize: number[]
 
   // Scale the value loss to avoid over fitting of the value function,
   // paper recommends 0.25 (See paper appendix Reanalyze)
   private readonly valueScale: number
   // L2 weights regularization
   protected readonly weightDecay: number
-  // Learning rate for SGD
-  protected readonly learningRate: number
 
-  private readonly initialInferenceModel: tf.LayersModel
-  private readonly recurrentInferenceModel: tf.LayersModel
+  private representationModel: tf.Sequential = tf.sequential()
+  private valueModel: tf.Sequential = tf.sequential()
+  private policyModel: tf.Sequential = tf.sequential()
+  private dynamicsModel: tf.Sequential = tf.sequential()
+  private rewardModel: tf.Sequential = tf.sequential()
 
   private readonly logDir: string
 
   constructor (
-    inputSize: number,
-    actionSpace: number,
-    learningRate: number
+    private readonly inputSize: number,
+    // Length of the action tensors
+    private readonly actionSpaceN: number,
+    // Learning rate for SGD
+    private readonly learningRate: number,
+    hiddenLayerSizes: number | number[] = 32
   ) {
     // hidden state size
     this.hxSize = 32
     this.rewardSupportSize = 0
     this.valueSupportSize = 0
-    this.hiddenLayerSize = 64
+    this.hiddenLayerSize = !Array.isArray(hiddenLayerSizes) ? [hiddenLayerSizes] : hiddenLayerSizes
     this.valueScale = 0.25
     this.weightDecay = 0.0001
-    this.learningRate = learningRate
-
-    this.actionSpaceN = actionSpace
 
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    // make model for h(o)->s f(s)->p,v
-    const observationInput = tf.input({ shape: [inputSize], name: 'observation_input' })
-    const h = this.h()
-    const f = this.f()
     const scale = this.valueScale
     function valueLoss (labels: tf.Tensor, predictions: tf.Tensor) {
       return tf.losses.meanSquaredError(labels, predictions, tf.scalar(scale))
     }
-
-    const representationLayer = h.s.apply(h.sh.apply(observationInput))
-    // make model for initial inference f(h(o))->p,v
-    this.initialInferenceModel = tf.model({
-      name: 'Initial Inference Model',
-      inputs: observationInput,
-      outputs: [
-        f.p.apply(f.ph.apply(representationLayer)) as tf.SymbolicTensor, // f(h(o))->p
-        f.v.apply(f.vh.apply(representationLayer)) as tf.SymbolicTensor, // f(h(o))->v
-        representationLayer as tf.SymbolicTensor // h(o)->s
-      ]
-    })
-    this.initialInferenceModel.compile({
-      optimizer: tf.train.sgd(learningRate),
-      loss: {
-        prediction_policy_output: tf.losses.softmaxCrossEntropy,
-        prediction_value_output: tf.losses.meanSquaredError,
-        representation_state_output: tf.losses.absoluteDifference
-      },
-      metrics: ['acc']
-    })
-
-    // make model for g(s,a)->s,r f(s)->p,v
-    // a: one hot encoded vector of shape batch_size x (state_x * state_y)
-    const actionPlaneInput = tf.input({ shape: [this.hxSize + this.actionSpaceN], name: 'action_plane_input' })
-    const g = this.g()
-    const dynamicsLayer = g.s.apply(g.sh.apply(actionPlaneInput))
-    // make model for recurrent inference f(g(s,a))->p,v,r
-    this.recurrentInferenceModel = tf.model({
-      name: 'Recurrent Inference Model',
-      inputs: actionPlaneInput,
-      outputs: [
-        f.p.apply(f.ph.apply(dynamicsLayer)) as tf.SymbolicTensor, // f(g(s,a))->p
-        f.v.apply(f.vh.apply(dynamicsLayer)) as tf.SymbolicTensor, // f(g(s,a))->v
-        g.r.apply(g.rh.apply(actionPlaneInput)) as tf.SymbolicTensor, // g(s,a)->r
-        dynamicsLayer as tf.SymbolicTensor // g(s,a)->s
-      ]
-    })
-    this.recurrentInferenceModel.compile({
-      optimizer: tf.train.sgd(learningRate),
-      loss: {
-        prediction_policy_output: tf.losses.softmaxCrossEntropy,
-        prediction_value_output: tf.losses.meanSquaredError,
-        dynamics_reward_output: tf.losses.meanSquaredError,
-        dynamics_state_output: tf.losses.absoluteDifference
-      },
-      metrics: ['acc']
-    })
+    this.makeModels()
   }
 
-  private makeHiddenLayer (name: string, units: number): tf.layers.Layer {
-    return tf.layers.dense({
-      name,
-      units,
-      activation: 'relu',
-      kernelInitializer: 'glorotUniform',
-      kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
-      useBias: false
-    })
-  }
-
-  // Representation network: h(obs)->state
-  private h (): { sh: tf.layers.Layer, s: tf.layers.Layer } {
-    const hs = tf.layers.dense({
+  private makeModels (): void {
+    const repModel = tf.sequential()
+    this.makeHiddenLayer(repModel, 'representation_state_hidden', [this.inputSize])
+    repModel.add(tf.layers.dense({
       name: 'representation_state_output',
       units: this.hxSize,
       activation: 'linear',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
-    })
-    return {
-      sh: this.makeHiddenLayer('representation_state_hidden', this.hiddenLayerSize),
-      s: hs
-    }
-  }
-
-  // Prediction network: f(state)->policy,value
-  private f (): { vh: tf.layers.Layer, v: tf.layers.Layer, ph: tf.layers.Layer, p: tf.layers.Layer } {
-    const fv = tf.layers.dense({
+    }))
+    this.representationModel = repModel
+    const valueModel = tf.sequential()
+    this.makeHiddenLayer(valueModel, 'prediction_value_hidden', [this.hxSize])
+    valueModel.add(tf.layers.dense({
       name: 'prediction_value_output',
       units: 1,
-      activation: 'tanh',
-      kernelInitializer: 'zeros',
+      activation: 'relu',
+//      activation: 'tanh',
+//      kernelInitializer: 'zeros',
+      kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
-    })
-    const fp = tf.layers.dense({
+    }))
+    this.valueModel = valueModel
+    const policyModel = tf.sequential()
+    this.makeHiddenLayer(policyModel, 'prediction_policy_hidden', [this.hxSize])
+    policyModel.add(tf.layers.dense({
       name: 'prediction_policy_output',
       units: this.actionSpaceN,
       activation: 'softmax',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
-    })
-    return {
-      vh: this.makeHiddenLayer('prediction_value_hidden', this.hiddenLayerSize),
-      v: fv,
-      ph: this.makeHiddenLayer('prediction_policy_hidden', this.hiddenLayerSize),
-      p: fp
-    }
-  }
-
-  // Dynamics network: g(state,action)->state,reward
-  private g (): { sh: tf.layers.Layer, s: tf.layers.Layer, rh: tf.layers.Layer, r: tf.layers.Layer } {
-    const gs = tf.layers.dense({
+    }))
+    this.policyModel = policyModel
+    const rewardModel = tf.sequential()
+    this.makeHiddenLayer(rewardModel, 'dynamics_reward_hidden', [this.hxSize + this.actionSpaceN])
+    rewardModel.add(tf.layers.dense({
+      name: 'dynamics_reward_output',
+      units: 1,
+      activation: 'relu',
+//      activation: 'tanh',
+//      kernelInitializer: 'zeros',
+      kernelInitializer: 'glorotUniform',
+      kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
+      useBias: false
+    }))
+    this.rewardModel = rewardModel
+    const dynamicsModel = tf.sequential()
+    this.makeHiddenLayer(dynamicsModel, 'dynamics_state_hidden', [this.hxSize + this.actionSpaceN])
+    dynamicsModel.add(tf.layers.dense({
       name: 'dynamics_state_output',
       units: this.hxSize,
       activation: 'linear',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
+    }))
+    this.dynamicsModel = dynamicsModel
+  }
+
+  private makeHiddenLayer (model: tf.Sequential, name: string, inputShape: number[]): void {
+    this.hiddenLayerSize.forEach((units, i) => {
+      model.add(tf.layers.dense({
+        name,
+        // `inputShape` is required only for the first layer.
+        inputShape: i === 0 ? inputShape : undefined,
+        units,
+        activation: 'relu',
+        kernelInitializer: 'glorotUniform',
+        kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
+        useBias: false
+      }))
     })
-    const gr = tf.layers.dense({
-      name: 'dynamics_reward_output',
-      units: 1,
-      activation: 'tanh',
-      kernelInitializer: 'zeros',
-      kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
-      useBias: false
-    })
-    return {
-      sh: this.makeHiddenLayer('dynamics_state_hidden', this.hiddenLayerSize),
-      s: gs,
-      rh: this.makeHiddenLayer('dynamics_reward_hidden', this.hiddenLayerSize),
-      r: gr
-    }
   }
 
   /**
@@ -221,17 +167,19 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       throw new Error('Incorrect observation applied to initialInference')
     }
     const observation = tf.tensor1d(obs.observation).reshape([1, -1])
-    const [tfPolicy, tfValue, tfHiddenState] = this.initialInferenceModel.predict(observation) as tf.Tensor[]
+    const tfHiddenState = this.representationModel.predict(observation) as tf.Tensor
     const hiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
     const reward = 0
+    const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
     const policy = this.inversePolicyTransform(tfPolicy)
+    const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
     const value = this.inverseValueTransform(tfValue)
     return new NetworkOutput(value, reward, policy, hiddenState)
   }
 
   /**
    * recurrentInference
-   * Execute g(s,a)->s,r f(s)->p,v
+   * Execute g(s,a)->s',r f(s)->p,v
    * @param hiddenState
    * @param action
    */
@@ -240,10 +188,13 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       throw new Error('Incorrect hidden state applied to recurrentInference')
     }
     const conditionedHiddenState = tf.concat([tf.tensor2d([hiddenState.state]), this.policyTransform(action.id)], 1)
-    const [tfPolicy, tfValue, tfReward, tfNewHiddenState] = this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
-    const newHiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfNewHiddenState.reshape([-1]).arraySync() as number[])
+    const tfHiddenState = this.dynamicsModel.predict(conditionedHiddenState) as tf.Tensor
+    const newHiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
+    const tfReward = this.rewardModel.predict(conditionedHiddenState) as tf.Tensor
     const reward = this.inverseRewardTransform(tfReward)
+    const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
     const policy = this.inversePolicyTransform(tfPolicy)
+    const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
     const value = this.inverseValueTransform(tfValue)
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
@@ -254,8 +205,11 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     const lossFunc = (): Scalar => {
       let loss = tf.scalar(0)
       for (const batch of samples) {
-        const predictions = this.calculatePredictions(batch)
-        loss = loss.add(this.measureLoss(predictions, batch.targets))
+        const mLoss = tf.tidy(() => {
+          const predictions = this.calculatePredictions(batch)
+          return this.measureLoss(predictions, batch.targets)
+        })
+        loss = loss.add(mLoss)
       }
       loss = loss.div(samples.length)
       acc = loss.bufferSync().get(0)
@@ -269,8 +223,9 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     const optimizer = tf.train.sgd(this.learningRate)
     const totalLoss = tf.tidy(() => {
       // update weights
-      const loss = optimizer.minimize(lossFunc, true)
-      return loss?.bufferSync().get(0) ?? 0
+      const {value, grads} = tf.variableGrads(lossFunc)
+      optimizer.applyGradients(grads)
+      return value?.bufferSync().get(0) ?? 0
     })
     optimizer.dispose()
     return [totalLoss, acc]
@@ -278,7 +233,9 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
 
   public calculatePredictions (batch: MuZeroBatch<Actionwise>): Prediction[] {
     const observation = tf.tensor1d((batch.image as MuZeroNetObservation).observation).reshape([1, -1])
-    const [tfPolicy, tfValue, tfHiddenState] = this.initialInferenceModel.predict(observation) as tf.Tensor[]
+    const tfHiddenState = this.representationModel.predict(observation) as tf.Tensor
+    const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
+    const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
     const predictions: Prediction[] = [{
       scale: 1,
       value: tfValue,
@@ -288,8 +245,10 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     let state = tfHiddenState
     for (const action of batch.actions) {
       const conditionedHiddenState = tf.concat([state, this.policyTransform(action.id)], 1)
-      const [tfPolicy, tfValue, tfReward, tfNewHiddenState] =
-          this.recurrentInferenceModel.predict(conditionedHiddenState) as tf.Tensor[]
+      const tfNewHiddenState = this.dynamicsModel.predict(conditionedHiddenState) as tf.Tensor
+      const tfReward = this.rewardModel.predict(conditionedHiddenState) as tf.Tensor
+      const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
+      const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
       predictions.push({
         scale: 1 / batch.actions.length,
         value: tfValue,
@@ -321,162 +280,6 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return loss
   }
 
-  /**
-   * trainInference
-   * @param samples
-   */
-  public async trainInferenceX (samples: Array<MuZeroBatch<Actionwise>>): Promise<number[]> {
-    const masterLog: LogMetrics[] = []
-    //    const metrics: Map<string, LogMetrics[]> = new Map<string, LogMetrics[]>([
-    //        ['policy', []], ['value', []], ['reward', []]
-    //    ])
-    const onBatchEnd = async (batch: number, logs?: Logs): Promise<void> => {
-      /*
-      const meanPolicy = tf.tidy(() => tf.mean(tf.tensor1d((logs["prediction_policy_output_loss"] ?? [0]) as number[])))
-      const meanValue = tf.tidy(() => tf.mean(tf.tensor1d((history.history["prediction_value_output_loss"] ?? [0]) as number[])))
-      const meanReward = tf.tidy(() => tf.mean(tf.tensor1d((history.history["dynamics_reward_output_loss"] ?? [0]) as number[])))
-      debug(`Loss metrics: policy=${meanPolicy.bufferSync().get(0).toFixed(3)}, value=${meanValue.bufferSync().get(0).toFixed(3)}, reward=${meanReward.bufferSync().get(0).toFixed(3)}`)
-      meanPolicy.dispose()
-      meanValue.dispose()
-      meanReward.dispose()
-      const meanloss = tf.tidy(() => tf.mean(tf.tensor1d((history.history["loss"] ?? [0]) as number[])).bufferSync().get(0))
-      const meanAcc = tf.tidy(() => tf.mean(tf.tensor1d(
-          ((history.history["prediction_policy_output_acc"] ?? [0]) as number[])
-              .concat((history.history["prediction_value_output_acc"] ?? [0]) as number[])
-              .concat((history.history["dynamics_reward_output_acc"] ?? [0]) as number[])
-      )).bufferSync().get(0))
-      return new LogMetrics(meanloss, meanAcc)
-
-       */
-      const meanAcc = tf.tidy(() => tf.mean(tf.tensor1d([
-        logs?.prediction_policy_output_acc ?? 1,
-        logs?.prediction_value_output_acc ?? 1,
-        logs?.dynamics_reward_output_acc ?? 1
-        //            logs?.dynamics_state_output_acc ?? 1,
-        //            logs?.representation_state_output_acc ?? 1,
-      ])).bufferSync().get(0))
-      masterLog.push(new LogMetrics(
-        logs?.loss ?? 0,
-        meanAcc,
-        logs?.prediction_policy_output_loss ?? 0,
-        logs?.prediction_policy_output_acc ?? 1,
-        logs?.prediction_value_output_loss ?? 0,
-        logs?.prediction_value_output_acc ?? 1,
-        logs?.dynamics_reward_output_loss ?? 0,
-        logs?.dynamics_reward_output_acc ?? 1))
-    }
-    /*
-    const fittingArgs = {
-      batchSize: 32,
-      epochs: 4,
-      verbose: 0,
-      shuffle: true,
-
-      callbacks: {
-        onBatchEnd: onBatchEnd
-      }
-
-    }
-    */
-    debug(`Training initial batch of size=${samples.length}`)
-    // Build initial inference
-    const observations = tf.tidy(() => tf.concat(samples.map(batch => tf.tensor2d((batch.image as MuZeroNetObservation).observation).reshape([1, -1])), 0))
-    const initialTargets = samples.map(batch => batch.targets[0])
-    const targetPolicies = tf.tidy(() => tf.concat(initialTargets.map(target => this.policyPredict(target.policy)), 0))
-    const targetValues = tf.tidy(() => tf.concat(initialTargets.map(target => this.valueTransform(target.value)), 0))
-    const states = tf.tidy(() => (this.initialInferenceModel.predict(observations) as tf.Tensor[])[2])
-    await this.initialInferenceModel.fit(
-      observations,
-      {
-        prediction_policy_output: targetPolicies,
-        prediction_value_output: targetValues,
-        representation_state_output: states
-      },
-      {
-        batchSize: 16,
-        epochs: 1,
-        verbose: 0,
-        shuffle: true,
-        callbacks: { onBatchEnd }
-      }
-    )
-    observations.dispose()
-    targetPolicies.dispose()
-    targetValues.dispose()
-    // Build recurrent inference
-    const dataSets = tf.tidy(() => samples.map((batch, index) => {
-      const hiddenStates: tf.Tensor[] = []
-      const hiddenState = states.gather([index])
-      const creps = tf.concat(batch.actions.map((action) => {
-        const crep = tf.concat([hiddenStates.at(-1) ?? hiddenState, this.policyTransform(action.id)], 1)
-        hiddenStates.push((this.recurrentInferenceModel.predict(crep) as tf.Tensor[])[3])
-        return crep
-      }), 0)
-      const targets = batch.targets.slice(1).filter(target => target.policy.length > 1)
-      const targetPolicies = tf.concat(targets.map(target => this.policyPredict(target.policy)), 0)
-      const targetValues = tf.concat(targets.map(target => this.valueTransform(target.value)), 0)
-      const targetRewards = tf.concat(targets.map(target => this.valueTransform(target.reward)), 0)
-      return {
-        condRep: creps,
-        states: tf.concat(hiddenStates, 0),
-        targetPolicies,
-        targetValues,
-        targetRewards
-      }
-    }))
-    states.dispose()
-    const condReps = tf.concat(dataSets.map(dataSet => dataSet.condRep))
-    const rTargetPolicies = tf.concat(dataSets.map(dataSet => dataSet.targetPolicies))
-    const rTargetValues = tf.concat(dataSets.map(dataSet => dataSet.targetValues))
-    const rTargetRewards = tf.concat(dataSets.map(dataSet => dataSet.targetRewards))
-    const rStates = tf.concat(dataSets.map(dataSet => dataSet.states))
-    for (const dataSet of dataSets) {
-      dataSet.condRep.dispose()
-      dataSet.states.dispose()
-      dataSet.targetPolicies.dispose()
-      dataSet.targetValues.dispose()
-      dataSet.targetRewards.dispose()
-    }
-    debug(`Training recurrent batch of size=${condReps.shape[0]}`)
-    await this.recurrentInferenceModel.fit(
-      condReps,
-      {
-        prediction_policy_output: rTargetPolicies,
-        prediction_value_output: rTargetValues,
-        dynamics_reward_output: rTargetRewards,
-        dynamics_state_output: rStates
-      },
-      {
-        batchSize: 16,
-        epochs: 1,
-        verbose: 0,
-        shuffle: true,
-        callbacks: { onBatchEnd }
-      }
-    )
-    condReps.dispose()
-    rTargetPolicies.dispose()
-    rTargetValues.dispose()
-    rTargetRewards.dispose()
-    rStates.dispose()
-    const acc = tf.tidy(() => tf.mean(tf.tensor1d(masterLog.map(lm => lm.accuracy))).bufferSync().get(0))
-    const loss = tf.tidy(() => tf.mean(tf.tensor1d(masterLog.map(lm => lm.loss))).bufferSync().get(0))
-    return [loss, acc]
-  }
-
-  /*
-  private lossReward (targetReward: number, result: tf.Tensor): tf.Scalar {
-    return tf.losses.sigmoidCrossEntropy(this.rewardTransform(targetReward), result).asScalar()
-  }
-
-  private lossValue (targetValue: number, result: tf.Tensor): tf.Scalar {
-    return tf.losses.sigmoidCrossEntropy(this.valueTransform(targetValue), result).asScalar().mul(this.valueScale)
-  }
-
-  private lossPolicy (targetPolicy: number[], result: tf.Tensor): tf.Scalar {
-    return tf.losses.softmaxCrossEntropy(this.policyPredict(targetPolicy), result).asScalar()
-  }
-*/
   private inversePolicyTransform (x: tf.Tensor): number[] {
     return x.squeeze().arraySync() as number[]
   }
@@ -513,23 +316,34 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
 
   public async save (path: string): Promise<void> {
     await Promise.all([
-      this.initialInferenceModel.save(path + 'ii'),
-      this.recurrentInferenceModel.save(path + 'ri')
+      this.representationModel.save(path + 'rp'),
+      this.valueModel.save(path + 'vm'),
+      this.policyModel.save(path + 'pm'),
+      this.dynamicsModel.save(path + 'dm'),
+      this.rewardModel.save(path + 'rm')
     ])
   }
 
   public async load (path: string): Promise<void> {
     const [
-      initialInference,
-      recurrentInference
+      rp, vm, pm, dm, rm
     ] = await Promise.all([
-      tf.loadLayersModel(path + 'ii/model.json'),
-      tf.loadLayersModel(path + 'ri/model.json')
+      tf.loadLayersModel(path + 'rp/model.json'),
+      tf.loadLayersModel(path + 'vm/model.json'),
+      tf.loadLayersModel(path + 'pm/model.json'),
+      tf.loadLayersModel(path + 'dm/model.json'),
+      tf.loadLayersModel(path + 'rm/model.json')
     ])
-    this.initialInferenceModel.setWeights(initialInference.getWeights())
-    this.recurrentInferenceModel.setWeights(recurrentInference.getWeights())
-    initialInference.dispose()
-    recurrentInference.dispose()
+    this.representationModel.setWeights(rp.getWeights())
+    this.valueModel.setWeights(vm.getWeights())
+    this.policyModel.setWeights(pm.getWeights())
+    this.dynamicsModel.setWeights(dm.getWeights())
+    this.rewardModel.setWeights(rm.getWeights())
+    rp.dispose()
+    vm.dispose()
+    pm.dispose()
+    dm.dispose()
+    rm.dispose()
   }
 
   public copyWeights (network: MuZeroNetwork<Action>): void {
@@ -537,13 +351,20 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
       throw new Error('Incorrect network applied to copy weights')
     }
     tf.tidy(() => {
-      network.initialInferenceModel.setWeights(this.initialInferenceModel.getWeights())
-      network.recurrentInferenceModel.setWeights(this.recurrentInferenceModel.getWeights())
+      network.representationModel.setWeights(this.representationModel.getWeights())
+      network.valueModel.setWeights(this.valueModel.getWeights())
+      network.policyModel.setWeights(this.policyModel.getWeights())
+      network.dynamicsModel.setWeights(this.dynamicsModel.getWeights())
+      network.rewardModel.setWeights(this.rewardModel.getWeights())
     })
   }
 
   public getWeights (): Tensor[] {
-    return this.initialInferenceModel.getWeights().concat(this.recurrentInferenceModel.getWeights())
+    return this.representationModel.getWeights()
+        .concat(this.valueModel.getWeights())
+        .concat(this.policyModel.getWeights())
+        .concat(this.dynamicsModel.getWeights())
+        .concat(this.rewardModel.getWeights())
   }
 
   /*
@@ -578,7 +399,9 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     // Perform the operation: tensor * scale + tf.stop_gradient(tensor) * (1 - scale)
     return tf.tidy(() => {
       const tidyTensor = tf.variable(tensor, false)
-      return tensor.mul(scale).add(tidyTensor.mul(1 - scale))
+      const scaledGradient = tensor.mul(scale).add(tidyTensor.mul(1 - scale))
+      tidyTensor.dispose()
+      return scaledGradient
     })
   }
 }

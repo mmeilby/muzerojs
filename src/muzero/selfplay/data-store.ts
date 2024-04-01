@@ -91,3 +91,22 @@ export class HashTable<State> implements Collection<State> {
     return this.getBucket_(lookupKey).get(lookupKey)
   }
 }
+
+/**
+ *
+ * @hidden
+ * @internal
+ * @template State
+ * @template Action
+ */
+export class NullDataStore<State> implements DataGateway<State> {
+  constructor () {}
+
+  get (key: State): MCTSState<State> | undefined {
+    return undefined
+  }
+
+  set (key: State, value: MCTSState<State>): this {
+    return this
+  }
+}

@@ -19,11 +19,17 @@ async function run (): Promise<void> {
   const model = new CartpoleNetModel()
   const config = factory.config()
   const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
-  conf.lrInit = 0.0001
+  conf.maxMoves = 500
   conf.decayingParam = 0.997
-  conf.selfPlaySteps = 150
-  conf.replayBufferSize = 100
-  conf.maxMoves = 100
+  conf.rootDirichletAlpha = 0.25
+  conf.simulations = 150
+  conf.batchSize = 100
+  conf.tdSteps = 7
+  conf.lrInit = 0.0001
+  conf.trainingSteps = 200
+  conf.replayBufferSize = 1000
+  conf.numUnrollSteps = 500
+  conf.lrDecayRate = 0.1
   const replayBuffer = new MuZeroReplayBuffer<MuZeroCartpoleState, MuZeroAction>(conf)
   replayBuffer.loadSavedGames(factory, model)
   const sharedStorage = new MuZeroSharedStorage<MuZeroAction>(conf)

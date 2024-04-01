@@ -27,7 +27,8 @@ export class CartPoleDataSet {
     public x: number,
     public xDot: number,
     public theta: number,
-    public thetaDot: number
+    public thetaDot: number,
+    public reward: number
   ) {
   }
 }
@@ -50,11 +51,12 @@ export class CartPole {
   private readonly gravity: number = 9.8
   private readonly massCart: number = 1.0
   private readonly massPole: number = 0.1
-  private readonly totalMass: number
-  private readonly length: number = 0.5
-  private readonly poleMoment: number
+  private readonly lengthPole: number = 0.5
   private readonly forceMag: number = 10.0
   private readonly tau: number = 0.02 // Seconds between state updates.
+
+  private readonly totalMass: number
+  private readonly poleMoment: number
 
   // Threshold values, beyond which a simulation will be marked as failed.
   private readonly xThreshold: number = 2.4
@@ -66,7 +68,7 @@ export class CartPole {
   public constructor () {
     // Constants that characterize the system.
     this.totalMass = this.massCart + this.massPole
-    this.poleMoment = this.massPole * this.length
+    this.poleMoment = this.massPole * this.lengthPole
   }
 
   /**
@@ -75,14 +77,14 @@ export class CartPole {
   public static getRandomState (): CartPoleDataSet {
     // The control-theory state variables of the cart-pole system.
     // Cart position, meters.
-    const x = Math.random() - 0.5
+    const x = (Math.random() - 0.5) * 0.1
     // Cart velocity.
-    const xDot = (Math.random() - 0.5) * 1
+    const xDot = Math.random() - 0.5
     // Pole angle, radians.
-    const theta = (Math.random() - 0.5) * 2 * (6 / 360 * 2 * Math.PI)
+    const theta = (Math.random() - 0.5) * 0.1
     // Pole angle velocity.
-    const thetaDot = (Math.random() - 0.5) * 0.5
-    return new CartPoleDataSet(x, xDot, theta, thetaDot)
+    const thetaDot = Math.random() - 0.5
+    return new CartPoleDataSet(x, xDot, theta, thetaDot, 0)
   }
 
   /**
@@ -98,7 +100,7 @@ export class CartPole {
     const sinTheta = Math.sin(dataset.theta)
 
     const temp = (force + this.poleMoment * dataset.thetaDot * dataset.thetaDot * sinTheta) / this.totalMass
-    const thetaAcc = (this.gravity * sinTheta - cosTheta * temp) / (this.length * (4 / 3 - this.massPole * cosTheta * cosTheta / this.totalMass))
+    const thetaAcc = (this.gravity * sinTheta - cosTheta * temp) / (this.lengthPole * (4 / 3 - this.massPole * cosTheta * cosTheta / this.totalMass))
     const xAcc = temp - this.poleMoment * thetaAcc * cosTheta / this.totalMass
 
     // Update the four state variables, using Euler's method.
@@ -107,7 +109,7 @@ export class CartPole {
     const theta = dataset.theta + this.tau * dataset.thetaDot
     const thetaDot = dataset.thetaDot + this.tau * thetaAcc
 
-    return new CartPoleDataSet(x, xDot, theta, thetaDot)
+    return new CartPoleDataSet(x, xDot, theta, thetaDot, 1)
   }
 
   /**
@@ -125,7 +127,8 @@ export class CartPole {
 
   public toString (dataset: CartPoleDataSet): string {
     const cart = `Cart: x=${dataset.x.toFixed(3)} m, v=${dataset.xDot.toFixed(3)} m/s | `
-    const pole = `Pole: a=${dataset.theta.toFixed(3)} rad, v=${dataset.thetaDot.toFixed(3)} rad/s`
-    return cart.concat(pole)
+    const pole = `Pole: a=${dataset.theta.toFixed(3)} rad, v=${dataset.thetaDot.toFixed(3)} rad/s | `
+    const reward = `Reward: ${dataset.reward}`
+    return cart.concat(pole, reward)
   }
 }

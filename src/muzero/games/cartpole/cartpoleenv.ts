@@ -54,7 +54,7 @@ export class MuZeroCartpole implements MuZeroEnvironment<MuZeroCartpoleState, Mu
    * @param player
    */
   public reward (state: MuZeroCartpoleState, player: number): number {
-    return state.isDone(state.dataset) ? 0 : 1
+    return state.dataset.reward
   }
 
   public terminal (state: MuZeroCartpoleState): boolean {

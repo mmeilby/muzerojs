@@ -5,7 +5,7 @@ import { type MuZeroModel } from '../games/core/model'
 import { type Actionwise, MCTSNode, MCTSState, Normalizer, type Playerwise } from './entities'
 import { type MuZeroEnvironment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node'
-import { TranspositionTable, type DataGateway } from './data-store'
+import {TranspositionTable, type DataGateway, NullDataStore} from './data-store'
 import debugFactory from 'debug'
 import { type NetworkOutput } from '../networks/networkoutput'
 import { type MuZeroConfig } from '../games/core/config'
@@ -73,7 +73,8 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @private
    */
   private playGame (network: MuZeroNetwork<Action>): MuZeroGameHistory<State, Action> {
-    const dataStore = new TranspositionTable<State>(new Map())
+//    const dataStore = new TranspositionTable<State>(new Map())
+    const dataStore = new NullDataStore<State>()
     const gameHistory = new MuZeroGameHistory(this.env, this.model)
     // Play a game from start to end, register target data.old on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
@@ -93,7 +94,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
 //     gameHistory.storeSearchStatistics(rootNode)
     log(`--- STAT: actions=${gameHistory.actionHistory.length} values=${gameHistory.rootValues.length} rewards=${gameHistory.rewards.length}`)
     log(`--- VALUES:  ${gameHistory.rootValues.toString()}`)
-    log(`--- REWARD:  ${gameHistory.rewards.toString()}`)
+    log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s,r)=>s+r, 0)})`)
     log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
     return gameHistory
   }
@@ -248,7 +249,8 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     const c = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
     const pbC2 = Math.sqrt(parent.mctsState.visits) / (1 + child.mctsState.visits)
     const priorScore = c * pbC2 * child.mctsState.prior
-    const valueScore = minMaxStats.normalize(child.mctsState.value)
+    const valueScore = child.mctsState.visits > 0 ?
+        minMaxStats.normalize(child.mctsState.reward + child.mctsState.value * this.config.decayingParam) : 0
     return priorScore + valueScore
   }
 
