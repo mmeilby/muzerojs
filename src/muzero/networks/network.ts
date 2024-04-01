@@ -31,6 +31,16 @@ class Prediction {
   ) {}
 }
 
+interface LossAndGradients {
+  value: tf.Tensor[],
+  reward: tf.Tensor[],
+  policy: tf.Tensor[],
+  total: tf.Tensor[],
+  valueGradients: tf.NamedTensorMap[],
+  rewardGradients: tf.NamedTensorMap[],
+  policyGradients: tf.NamedTensorMap[]
+}
+
 export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
@@ -205,7 +215,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     const lossFunc = (): Scalar => {
       let loss = tf.scalar(0)
       for (const batch of samples) {
-        const mLoss = tf.tidy(() => {
+        const mLoss: LossAndGradients = tf.tidy(() => {
           const predictions = this.calculatePredictions(batch)
           return this.measureLoss(predictions, batch.targets)
         })
@@ -222,13 +232,35 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     }
     const optimizer = tf.train.sgd(this.learningRate)
     const totalLoss = tf.tidy(() => {
-      // update weights
-      const {value, grads} = tf.variableGrads(lossFunc)
-      optimizer.applyGradients(grads)
-      return value?.bufferSync().get(0) ?? 0
+      const batchLossAndGradients: LossAndGradients = {
+        value: [],
+        reward: [],
+        policy: [],
+        total: [],
+        valueGradients: [],
+        rewardGradients: [],
+        policyGradients: []
+      }
+      for (const batch of samples) {
+        const predictions = this.calculatePredictions(batch)
+        const lossAndGradients = this.measureLoss(predictions, batch.targets)
+        batchLossAndGradients.value.push(tf.sum(tf.concat(lossAndGradients.value)))
+        batchLossAndGradients.reward.push(tf.sum(tf.concat(lossAndGradients.reward)))
+        batchLossAndGradients.policy.push(tf.sum(tf.concat(lossAndGradients.policy)))
+        batchLossAndGradients.total.push(tf.sum(tf.concat(lossAndGradients.total)))
+        batchLossAndGradients.valueGradients.push()
+        batchLossAndGradients.rewardGradients.push()
+        batchLossAndGradients.policyGradients.push()
+      }
+      return tf.mean(tf.concat(batchLossAndGradients.total)).asScalar()
     })
+    // update weights
+    const representationGradients = tf.variableGrads(() => totalLoss, this.getTrainableVariables(this.representationModel))
+    const dynamicsGradients = tf.variableGrads(() => totalLoss, this.getTrainableVariables(this.dynamicsModel))
+    optimizer.applyGradients(representationGradients.grads)
+    optimizer.applyGradients(dynamicsGradients.grads)
     optimizer.dispose()
-    return [totalLoss, acc]
+    return [totalLoss.bufferSync().get(0), acc]
   }
 
   public calculatePredictions (batch: MuZeroBatch<Actionwise>): Prediction[] {
@@ -260,24 +292,59 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return predictions
   }
 
-  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): Scalar {
-    let loss = tf.scalar(0)
+
+  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): LossAndGradients {
+    const batchTotalLoss: LossAndGradients = {
+      value: [],
+      reward: [],
+      policy: [],
+      total: [],
+      valueGradients: [],
+      rewardGradients: [],
+      policyGradients: []
+    }
+
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
       const target = targets[i]
-      const lossV = this.scalarLoss(prediction.value, this.valueTransform(target.value))
-      const lossR = i > 0 ? this.scalarLoss(prediction.reward, this.valueTransform(target.reward)) : tf.scalar(0)
-      const lossP = target.policy.length > 0
-        ? tf.losses.softmaxCrossEntropy(this.policyPredict(target.policy), prediction.policy).asScalar()
-        : tf.scalar(0)
-      debug(`Loss(${i}) ${target.policy.join(',')} V=${lossV.bufferSync().get(0).toFixed(3)},`,
-                          `R=${lossR.bufferSync().get(0).toFixed(3)},`,
-                          `P=${lossP.bufferSync().get(0).toFixed(3)},`,
-                          `T=${prediction.reward.bufferSync().get(0).toFixed(3)}-${target.reward}`)
-      const lossBatch = lossV.add(lossR).add(lossP)
-      loss = loss.add(this.scaleGradient(lossBatch, prediction.scale))
+      const valueGradients = tf.variableGrads(
+          () => this.scalarLoss(prediction.value, this.valueTransform(target.value)),
+          this.getTrainableVariables(this.valueModel)
+      )
+      batchTotalLoss.value.push(valueGradients.value)
+      batchTotalLoss.total.push(this.scaleGradient(valueGradients.value, prediction.scale))
+      batchTotalLoss.valueGradients.push(valueGradients.grads)
+      if (i > 0) {
+        const rewardGradients = tf.variableGrads(
+            () => this.scalarLoss(prediction.reward, this.valueTransform(target.reward)),
+            this.getTrainableVariables(this.rewardModel)
+        )
+        batchTotalLoss.reward.push(rewardGradients.value)
+        batchTotalLoss.total.push(this.scaleGradient(rewardGradients.value, prediction.scale))
+        batchTotalLoss.rewardGradients.push(rewardGradients.grads)
+      }
+      if (target.policy.length > 0) {
+        const policyGradients = tf.variableGrads(
+            () => tf.losses.softmaxCrossEntropy(this.policyPredict(target.policy), prediction.policy).asScalar(),
+            this.getTrainableVariables(this.policyModel)
+        )
+        batchTotalLoss.policy.push(policyGradients.value)
+        batchTotalLoss.total.push(this.scaleGradient(policyGradients.value, prediction.scale))
+        batchTotalLoss.policyGradients.push(policyGradients.grads)
+      }
     }
-    return loss
+    if (debug.enabled) {
+      const lossV = tf.mean(tf.concat(batchTotalLoss.value)).bufferSync().get(0).toFixed(3)
+      const lossR = tf.mean(tf.concat(batchTotalLoss.reward)).bufferSync().get(0).toFixed(3)
+      const lossP = tf.mean(tf.concat(batchTotalLoss.policy)).bufferSync().get(0).toFixed(3)
+      const total = tf.sum(tf.concat(batchTotalLoss.total)).bufferSync().get(0).toFixed(3)
+      debug(`Loss: V=${lossV}, R=${lossR}, P=${lossP} T=${total}`)
+    }
+    return batchTotalLoss
+  }
+
+  private getTrainableVariables (model: tf.LayersModel): tf.Variable[] {
+    return model.getWeights(true).filter(weight => weight instanceof tf.Variable) as tf.Variable[]
   }
 
   private inversePolicyTransform (x: tf.Tensor): number[] {
