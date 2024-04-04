@@ -31,14 +31,25 @@ class Prediction {
   ) {}
 }
 
+class LossLog {
+  public value: number
+  public reward: number
+  public policy: number
+  public total: tf.Tensor
+
+  constructor() {
+    this.value = 0
+    this.reward = 0
+    this.policy = 0
+    this.total = tf.scalar(0)
+  }
+}
+
 interface LossAndGradients {
   value: tf.Tensor[],
   reward: tf.Tensor[],
   policy: tf.Tensor[],
   total: tf.Tensor[],
-  valueGradients: tf.NamedTensorMap[],
-  rewardGradients: tf.NamedTensorMap[],
-  policyGradients: tf.NamedTensorMap[]
 }
 
 export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
@@ -189,7 +200,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
 
   /**
    * recurrentInference
-   * Execute g(s,a)->s',r f(s)->p,v
+   * Execute g(s,a)->s',r f(s')->p,v
    * @param hiddenState
    * @param action
    */
@@ -210,141 +221,170 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
   }
 
   public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
-    debug(`Training batch of size=${samples.length}`)
-    let acc = 0
-    const lossFunc = (): Scalar => {
-      let loss = tf.scalar(0)
-      for (const batch of samples) {
-        const mLoss: LossAndGradients = tf.tidy(() => {
-          const predictions = this.calculatePredictions(batch)
-          return this.measureLoss(predictions, batch.targets)
-        })
-        loss = loss.add(mLoss)
-      }
-      loss = loss.div(samples.length)
-      acc = loss.bufferSync().get(0)
-      // add penalty for large weights
-      const regularizer = tf.regularizers.l2({ l2: this.weightDecay })
-      for (const weights of this.getWeights()) {
-        loss = loss.add(regularizer.apply(weights))
-      }
-      return loss
-    }
-    const optimizer = tf.train.sgd(this.learningRate)
-    const totalLoss = tf.tidy(() => {
-      const batchLossAndGradients: LossAndGradients = {
-        value: [],
-        reward: [],
-        policy: [],
-        total: [],
-        valueGradients: [],
-        rewardGradients: [],
-        policyGradients: []
-      }
+    debug(`Training sample set of ${samples.length} games`)
+    const f = () => {
+      const batchLosses: LossLog = new LossLog()
       for (const batch of samples) {
         const predictions = this.calculatePredictions(batch)
         const lossAndGradients = this.measureLoss(predictions, batch.targets)
-        batchLossAndGradients.value.push(tf.sum(tf.concat(lossAndGradients.value)))
-        batchLossAndGradients.reward.push(tf.sum(tf.concat(lossAndGradients.reward)))
-        batchLossAndGradients.policy.push(tf.sum(tf.concat(lossAndGradients.policy)))
-        batchLossAndGradients.total.push(tf.sum(tf.concat(lossAndGradients.total)))
-        batchLossAndGradients.valueGradients.push()
-        batchLossAndGradients.rewardGradients.push()
-        batchLossAndGradients.policyGradients.push()
+        batchLosses.total = batchLosses.total.add(lossAndGradients.total)
+        if (debug.enabled) {
+          const lossV = lossAndGradients.value.toFixed(3)
+          const lossR = lossAndGradients.reward.toFixed(3)
+          const lossP = lossAndGradients.policy.toFixed(3)
+          const total = lossAndGradients.total.bufferSync().get(0).toFixed(3)
+          debug(`Game overall loss: V=${lossV}, R=${lossR}, P=${lossP} T=${total}`)
+        }
+        lossAndGradients.total.dispose()
       }
-      return tf.mean(tf.concat(batchLossAndGradients.total)).asScalar()
-    })
-    // update weights
-    const representationGradients = tf.variableGrads(() => totalLoss, this.getTrainableVariables(this.representationModel))
-    const dynamicsGradients = tf.variableGrads(() => totalLoss, this.getTrainableVariables(this.dynamicsModel))
-    optimizer.applyGradients(representationGradients.grads)
-    optimizer.applyGradients(dynamicsGradients.grads)
+      batchLosses.total = batchLosses.total.div(samples.length)
+      if (debug.enabled) {
+        debug(`Sample set mean loss: T=${batchLosses.total.bufferSync().get(0).toFixed(3)}`)
+      }
+      // update weights
+      return batchLosses.total.asScalar()
+    }
+    const optimizer = tf.train.sgd(this.learningRate)
+//    const representationWeights = tf.concat(this.representationModel.getWeights(true))
+    const cost = optimizer.minimize(f, true)
+//    const representationWeightsAfterTraining = tf.concat(this.representationModel.getWeights(true))
+//    if (representationWeightsAfterTraining.notEqual(representationWeights)) {
+//      representationWeights.sub(representationWeightsAfterTraining).print()
+//    }
+    const loss = cost?.bufferSync().get(0) ?? 0
+    cost?.dispose()
     optimizer.dispose()
-    return [totalLoss.bufferSync().get(0), acc]
+    return [loss, 0]
   }
 
   public calculatePredictions (batch: MuZeroBatch<Actionwise>): Prediction[] {
     const observation = tf.tensor1d((batch.image as MuZeroNetObservation).observation).reshape([1, -1])
     const tfHiddenState = this.representationModel.predict(observation) as tf.Tensor
-    const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
-    const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
+    // Gradient scaling controls the representation network training. To prevent training set scale = 0
+    let state = this.scaleGradient(tfHiddenState, 1)
+    const tfPolicy = this.policyModel.predict(state) as tf.Tensor
+    const tfValue = this.valueModel.predict(state) as tf.Tensor
     const predictions: Prediction[] = [{
       scale: 1,
       value: tfValue,
       reward: tensor(0),
       policy: tfPolicy
     }]
-    let state = tfHiddenState
     for (const action of batch.actions) {
       const conditionedHiddenState = tf.concat([state, this.policyTransform(action.id)], 1)
       const tfNewHiddenState = this.dynamicsModel.predict(conditionedHiddenState) as tf.Tensor
       const tfReward = this.rewardModel.predict(conditionedHiddenState) as tf.Tensor
-      const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
-      const tfValue = this.valueModel.predict(tfHiddenState) as tf.Tensor
+      const tfPolicy = this.policyModel.predict(tfNewHiddenState) as tf.Tensor
+      const tfValue = this.valueModel.predict(tfNewHiddenState) as tf.Tensor
       predictions.push({
         scale: 1 / batch.actions.length,
         value: tfValue,
         reward: tfReward,
         policy: tfPolicy
       })
+      // Prepare new state for next game step
+      // Gradient scaling controls the dynamics network training. To prevent training set scale = 0
       state = this.scaleGradient(tfNewHiddenState, 0.5)
     }
     return predictions
   }
 
-
-  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): LossAndGradients {
-    const batchTotalLoss: LossAndGradients = {
-      value: [],
-      reward: [],
-      policy: [],
-      total: [],
-      valueGradients: [],
-      rewardGradients: [],
-      policyGradients: []
-    }
-
+  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): LossLog {
+    const batchTotalLoss: LossLog = new LossLog()
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
       const target = targets[i]
-      const valueGradients = tf.variableGrads(
-          () => this.scalarLoss(prediction.value, this.valueTransform(target.value)),
-          this.getTrainableVariables(this.valueModel)
-      )
-      batchTotalLoss.value.push(valueGradients.value)
-      batchTotalLoss.total.push(this.scaleGradient(valueGradients.value, prediction.scale))
-      batchTotalLoss.valueGradients.push(valueGradients.grads)
+      const lossV = this.scalarLoss(prediction.value, this.valueTransform(target.value))
+      batchTotalLoss.value += lossV.bufferSync().get(0)
+      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV, prediction.scale))
       if (i > 0) {
-        const rewardGradients = tf.variableGrads(
-            () => this.scalarLoss(prediction.reward, this.valueTransform(target.reward)),
-            this.getTrainableVariables(this.rewardModel)
-        )
-        batchTotalLoss.reward.push(rewardGradients.value)
-        batchTotalLoss.total.push(this.scaleGradient(rewardGradients.value, prediction.scale))
-        batchTotalLoss.rewardGradients.push(rewardGradients.grads)
+        const lossR = this.scalarLoss(prediction.reward, this.valueTransform(target.reward))
+        batchTotalLoss.reward += lossR.bufferSync().get(0)
+        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
       }
       if (target.policy.length > 0) {
-        const policyGradients = tf.variableGrads(
-            () => tf.losses.softmaxCrossEntropy(this.policyPredict(target.policy), prediction.policy).asScalar(),
-            this.getTrainableVariables(this.policyModel)
-        )
-        batchTotalLoss.policy.push(policyGradients.value)
-        batchTotalLoss.total.push(this.scaleGradient(policyGradients.value, prediction.scale))
-        batchTotalLoss.policyGradients.push(policyGradients.grads)
+        const lossP = tf.losses.softmaxCrossEntropy(this.policyPredict(target.policy), prediction.policy).asScalar()
+        batchTotalLoss.policy += lossP.bufferSync().get(0)
+        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
       }
     }
-    if (debug.enabled) {
-      const lossV = tf.mean(tf.concat(batchTotalLoss.value)).bufferSync().get(0).toFixed(3)
-      const lossR = tf.mean(tf.concat(batchTotalLoss.reward)).bufferSync().get(0).toFixed(3)
-      const lossP = tf.mean(tf.concat(batchTotalLoss.policy)).bufferSync().get(0).toFixed(3)
-      const total = tf.sum(tf.concat(batchTotalLoss.total)).bufferSync().get(0).toFixed(3)
-      debug(`Loss: V=${lossV}, R=${lossR}, P=${lossP} T=${total}`)
-    }
+    batchTotalLoss.value /= predictions.length
+    batchTotalLoss.reward /= predictions.length
+    batchTotalLoss.policy /= predictions.length
     return batchTotalLoss
   }
 
   private getTrainableVariables (model: tf.LayersModel): tf.Variable[] {
-    return model.getWeights(true).filter(weight => weight instanceof tf.Variable) as tf.Variable[]
+    return model.getWeights(true) as tf.Variable<tf.Rank>[]
+  }
+
+  /**
+   * Push a new dictionary of gradients into records.
+   *
+   * @param {{[varName: string]: tf.Tensor[]}} record The record of variable
+   *   gradient: a map from variable name to the Array of gradient values for
+   *   the variable.
+   * @param {{[varName: string]: tf.Tensor}} gradients The new gradients to push
+   *   into `record`: a map from variable name to the gradient Tensor.
+   */
+  private pushGradients(record: {[varName: string]: tf.Tensor[]}, gradients: tf.NamedTensorMap) {
+    for (const key in gradients) {
+      if (key in record) {
+        record[key].push(gradients[key])
+      } else {
+        record[key] = [gradients[key]]
+      }
+    }
+  }
+
+  /**
+   * Push a new dictionary of gradients into records.
+   *
+   * @param {{[varName: string]: tf.Tensor[][]}} record The record of variable
+   *   gradient: a map from variable name to the Array of gradient values for
+   *   the variable.
+   * @param {{[varName: string]: tf.Tensor[]}} gradients The new gradients to push
+   *   into `record`: a map from variable name to the gradient Tensor.
+   */
+  private pushGradientArrays(record: {[varName: string]: tf.Tensor[][]}, gradients: {[varName: string]: tf.Tensor[]}) {
+    for (const key in gradients) {
+      if (key in record) {
+        record[key].push(gradients[key])
+      } else {
+        record[key] = [gradients[key]]
+      }
+    }
+  }
+
+  /**
+   * Scale the gradient values using normalized reward values and compute average.
+   *
+   * The gradient values are scaled by the normalized reward values. Then they
+   * are averaged across all games and all steps.
+   *
+   * @param {{[varName: string]: tf.Tensor[][]}} allGradients A map from variable
+   *   name to all the gradient values for the variable across all games and all
+   *   steps.
+   * @param {tf.Tensor[]} normalizedRewards An Array of normalized reward values
+   *   for all the games. Each element of the Array is a 1D tf.Tensor of which
+   *   the length equals the number of steps in the game.
+   * @returns {{[varName: string]: tf.Tensor}} Scaled and averaged gradients
+   *   for the variables.
+   */
+  private scaleAndAverageGradients(allGradients: {[varName: string]: tf.Tensor[][]}) {
+    return tf.tidy(() => {
+      const gradients: tf.NamedTensorMap = {}
+      for (const varName in allGradients) {
+        gradients[varName] = tf.tidy(() => {
+          // Stack gradients together.
+          const varGradients = allGradients[varName].map(gradArr => tf.stack(gradArr))
+          // Concatenate the gradients together, then average them across
+          // all the steps of all the games.
+          return tf.mean(tf.concat(varGradients, 0), 0)
+        })
+      }
+      return gradients
+    });
   }
 
   private inversePolicyTransform (x: tf.Tensor): number[] {

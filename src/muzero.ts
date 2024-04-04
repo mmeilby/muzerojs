@@ -38,9 +38,13 @@ async function run (): Promise<void> {
   const train = new MuZeroTraining<MuZeroCartpoleState, MuZeroAction>(conf)
   debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   for (let sim = 0; sim < conf.selfPlaySteps; sim++) {
+    const useBaseline = tf.memory().numTensors
     const network = sharedStorage.latestNetwork()
     await selfPlay.selfPlay(network, replayBuffer)
     await train.trainSingleInteration(sharedStorage, replayBuffer)
+    if (tf.memory().numTensors - useBaseline > 0) {
+      debug(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
+    }
   }
   /*
   await Promise.all([
