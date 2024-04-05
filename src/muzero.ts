@@ -15,8 +15,8 @@ import { CartpoleNetModel, type MuZeroCartpoleState } from './muzero/games/cartp
 const debug = debugFactory('muzero:muzero:debug')
 
 async function run (): Promise<void> {
-  const factory = new MuZeroCartpole()
-  const model = new CartpoleNetModel()
+  const factory = new MuZeroNim()
+  const model = new NimNetModel()
   const config = factory.config()
   const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
   conf.maxMoves = 500
@@ -30,12 +30,12 @@ async function run (): Promise<void> {
   conf.replayBufferSize = 1000
   conf.numUnrollSteps = 500
   conf.lrDecayRate = 0.1
-  const replayBuffer = new MuZeroReplayBuffer<MuZeroCartpoleState, MuZeroAction>(conf)
+  const replayBuffer = new MuZeroReplayBuffer<MuZeroNimState, MuZeroAction>(conf)
   replayBuffer.loadSavedGames(factory, model)
   const sharedStorage = new MuZeroSharedStorage<MuZeroAction>(conf)
   await sharedStorage.loadNetwork()
-  const selfPlay = new MuZeroSelfPlay<MuZeroCartpoleState, MuZeroAction>(conf, factory, model)
-  const train = new MuZeroTraining<MuZeroCartpoleState, MuZeroAction>(conf)
+  const selfPlay = new MuZeroSelfPlay<MuZeroNimState, MuZeroAction>(conf, factory, model)
+  const train = new MuZeroTraining<MuZeroNimState, MuZeroAction>(conf)
   debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   for (let sim = 0; sim < conf.selfPlaySteps; sim++) {
     const useBaseline = tf.memory().numTensors

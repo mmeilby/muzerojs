@@ -109,7 +109,7 @@ export class CartPole {
     const theta = dataset.theta + this.tau * dataset.thetaDot
     const thetaDot = dataset.thetaDot + this.tau * thetaAcc
 
-    return new CartPoleDataSet(x, xDot, theta, thetaDot, 1)
+    return new CartPoleDataSet(x, xDot, theta, thetaDot, dataset.reward + 1)
   }
 
   /**

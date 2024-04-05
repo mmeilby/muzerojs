@@ -19,7 +19,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   private readonly observationHistory: MuZeroObservation[]
   // A list of actions taken at each turn of the game
   public readonly actionHistory: Action[]
-  // A list of true rewards received at each turn of the game
+  // A list of true rewards received at each turn of the game related to the player to act
   public readonly rewards: number[]
   // A list of tracked player at each turn of the game
   public readonly toPlayHistory: number[]

@@ -88,13 +88,9 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       gameHistory.storeSearchStatistics(rootNode)
       debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
     }
-    // Since policy and value data.old are referring to the state before action is committed
-    // we need a last set of data.old for the game history
-//    const rootNode = this.runMCTS(gameHistory, network, dataStore)
-//     gameHistory.storeSearchStatistics(rootNode)
     log(`--- STAT: actions=${gameHistory.actionHistory.length} values=${gameHistory.rootValues.length} rewards=${gameHistory.rewards.length}`)
     log(`--- VALUES:  ${gameHistory.rootValues.toString()}`)
-    log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s,r)=>s+r, 0)})`)
+    log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s, r) => s + r, 0)})`)
     log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
     return gameHistory
   }
@@ -133,7 +129,9 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
         const debugSearchTree: number[] = []
         while (node.isExpanded() && node.children.length > 0) {
           node = this.selectChild(node, minMaxStats)
-          debugSearchTree.push(node.action?.id ?? -1)
+          if (debug.enabled) {
+            debugSearchTree.push(node.action?.id ?? -1)
+          }
         }
         debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.mctsState.prior}`)
         tf.tidy(() => {
@@ -146,7 +144,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
             this.backPropagate(node, networkOutput.nValue, node.player, minMaxStats)
           } else {
             debug('Recurrent inference attempted on a root node')
-            debug(`Node: ${JSON.stringify(node)}`)
+            debug(`Node: ${JSON.stringify(node.mctsState)}`)
             throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
           }
         })
@@ -170,19 +168,17 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
   private selectAction (rootNode: MCTSNode<State, Action>): Action {
     const visitsTable = rootNode.children.map(child => {
       return { action: child.action, visits: child.mctsState.visits }
-    }).sort((a, b) => a.visits === b.visits ? (Math.random() > 0.5 ? 1 : -1) : b.visits - a.visits)
-    const action = 0
-    /*
+    })
+    let action = 0
     if (visitsTable.length > 1) {
       // define the probability for each action based on popularity (visits)
       tf.tidy(() => {
-        const probs = tf.softmax(tf.tensor1d(visitsTable.map(r => r.visits)))
+        const visitProb = visitsTable.map(r => r.visits)
+        const probs = tf.softmax(tf.tensor1d(visitProb))
         // select the most popular action
-        const draw = tf.multinomial(probs, 1, undefined, false) as tf.Tensor1D
-        action = draw.bufferSync().get(0)
+        action = tf.multinomial(probs, 2).bufferSync().get(1)
       })
     }
-    */
     return visitsTable[action].action as Action
   }
 
@@ -210,12 +206,18 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @private
    */
   private selectChild (node: MCTSNode<State, Action>, minMaxStats: Normalizer): MCTSNode<State, Action> {
+    if (node.children.length === 0) {
+      throw new Error(`SelectChild: No children available for selection. Parent state: ${node.mctsState.state.toString()}`)
+    }
+    if (node.children.length === 1) {
+      return node.children[0]
+    }
     const ucbTable = node.children.map(child => {
       return { node: child, ucb: this.ucbScore(node, child, minMaxStats) }
     })
     const bestUCB = ucbTable.reduce((best, c) => {
       return best.ucb < c.ucb ? c : best
-    }, { node, ucb: Number.NEGATIVE_INFINITY })
+    })
     return bestUCB.node
   }
 
@@ -249,8 +251,14 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     const c = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
     const pbC2 = Math.sqrt(parent.mctsState.visits) / (1 + child.mctsState.visits)
     const priorScore = c * pbC2 * child.mctsState.prior
-    const valueScore = child.mctsState.visits > 0 ?
-        minMaxStats.normalize(child.mctsState.reward + child.mctsState.value * this.config.decayingParam) : 0
+    const valueScore = child.mctsState.visits > 0 ? minMaxStats.normalize(child.mctsState.reward + child.mctsState.value * this.config.decayingParam) : 0
+    if (Number.isNaN(priorScore)) {
+      throw new Error('UCB: PriorScore is undefined')
+    }
+    if (Number.isNaN(valueScore)) {
+      debug(`Reward: ${child.mctsState.reward}, value: ${child.mctsState.value}`)
+      throw new Error('UCB: ValueScore is undefined')
+    }
     return priorScore + valueScore
   }
 
@@ -300,6 +308,10 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     let value = nValue
     let child: MCTSNode<State, Action> | undefined = node
     while (child != null) {
+      if (!Number.isFinite(value)) {
+        debug(`nValue: ${nValue} value: ${value}`)
+        throw new Error('BackPropagate: Supplied value is out of range')
+      }
       // register visit
       child.mctsState.visits++
       child.mctsState.valueSum += child.samePlayer(player) ? value : -value

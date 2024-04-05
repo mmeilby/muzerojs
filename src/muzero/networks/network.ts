@@ -1,6 +1,6 @@
 import * as tf from '@tensorflow/tfjs-node'
-import { type Logs, type Scalar, type Tensor, tensor } from '@tensorflow/tfjs-node'
-import { LogMetrics, scalarToSupport, supportToScalar } from './utils'
+import { type Scalar, type Tensor, tensor } from '@tensorflow/tfjs-node'
+import { scalarToSupport, supportToScalar } from './utils'
 import { NetworkOutput } from './networkoutput'
 import { type MuZeroBatch } from '../replaybuffer/batch'
 import { type Actionwise } from '../selfplay/entities'
@@ -37,19 +37,12 @@ class LossLog {
   public policy: number
   public total: tf.Tensor
 
-  constructor() {
+  constructor () {
     this.value = 0
     this.reward = 0
     this.policy = 0
     this.total = tf.scalar(0)
   }
-}
-
-interface LossAndGradients {
-  value: tf.Tensor[],
-  reward: tf.Tensor[],
-  policy: tf.Tensor[],
-  total: tf.Tensor[],
 }
 
 export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
@@ -94,10 +87,6 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
 
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    const scale = this.valueScale
-    function valueLoss (labels: tf.Tensor, predictions: tf.Tensor) {
-      return tf.losses.meanSquaredError(labels, predictions, tf.scalar(scale))
-    }
     this.makeModels()
   }
 
@@ -294,7 +283,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
       const target = targets[i]
-      const lossV = this.scalarLoss(prediction.value, this.valueTransform(target.value))
+      const lossV = this.valueLoss(prediction.value, this.valueTransform(target.value))
       batchTotalLoss.value += lossV.bufferSync().get(0)
       batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV, prediction.scale))
       if (i > 0) {
@@ -315,7 +304,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
   }
 
   private getTrainableVariables (model: tf.LayersModel): tf.Variable[] {
-    return model.getWeights(true) as tf.Variable<tf.Rank>[]
+    return model.getWeights(true) as Array<tf.Variable<tf.Rank>>
   }
 
   /**
@@ -327,7 +316,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * @param {{[varName: string]: tf.Tensor}} gradients The new gradients to push
    *   into `record`: a map from variable name to the gradient Tensor.
    */
-  private pushGradients(record: {[varName: string]: tf.Tensor[]}, gradients: tf.NamedTensorMap) {
+  private pushGradients (record: Record<string, tf.Tensor[]>, gradients: tf.NamedTensorMap): void {
     for (const key in gradients) {
       if (key in record) {
         record[key].push(gradients[key])
@@ -346,7 +335,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * @param {{[varName: string]: tf.Tensor[]}} gradients The new gradients to push
    *   into `record`: a map from variable name to the gradient Tensor.
    */
-  private pushGradientArrays(record: {[varName: string]: tf.Tensor[][]}, gradients: {[varName: string]: tf.Tensor[]}) {
+  private pushGradientArrays (record: Record<string, tf.Tensor[][]>, gradients: Record<string, tf.Tensor[]>): void {
     for (const key in gradients) {
       if (key in record) {
         record[key].push(gradients[key])
@@ -371,7 +360,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * @returns {{[varName: string]: tf.Tensor}} Scaled and averaged gradients
    *   for the variables.
    */
-  private scaleAndAverageGradients(allGradients: {[varName: string]: tf.Tensor[][]}) {
+  private scaleAndAverageGradients (allGradients: Record<string, tf.Tensor[][]>): tf.NamedTensorMap {
     return tf.tidy(() => {
       const gradients: tf.NamedTensorMap = {}
       for (const varName in allGradients) {
@@ -486,6 +475,10 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return 1
   }
 */
+  private valueLoss (prediction: tf.Tensor, target: tf.Tensor): tf.Scalar {
+    return tf.losses.meanSquaredError(target, prediction, tf.scalar(this.valueScale)).asScalar()
+  }
+
   /**
    * MSE in board games, cross entropy between categorical values in Atari
    * @param prediction

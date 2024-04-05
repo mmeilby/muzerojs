@@ -68,7 +68,7 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
       return config.misereGame ? state.player : -state.player
     } else if (pinsLeft === 1) {
       // The case when there is only one pin left
-      // For misére games this is a loosing situation
+      // For misére games this is a loosing situation for the current player
       return config.misereGame ? -state.player : state.player
     } else {
       return 0

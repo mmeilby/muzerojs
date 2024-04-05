@@ -1,10 +1,10 @@
-import { MuZeroHiddenState } from '../networks/nnet'
+import { type MuZeroHiddenState } from '../networks/nnet'
 
 /**
  * `Playerwise` is an interface made to extend generic `State` objects used in
- * the [[GameRules]] interface. It is meant to insure that, even though the shape
+ * the [[GameRules]] interface. It is meant to ensure that, even though the shape
  * and implementation of the `State` object is left up to the user, it should
- * atleast have a `player` property.
+ * at least have a `player` property.
  */
 export interface Playerwise {
   player: number
@@ -24,7 +24,7 @@ export interface Actionwise {
  * function(state) {
  *   const possibleActions = [];
  *
- *   // Some kind of algortihm that you implement and
+ *   // Some kind of algorithm that you implement and
  *   // pushes all possible Action(s) into an array.
  *
  *   return possibleActions;
@@ -80,8 +80,8 @@ export type StateIsTerminal<State extends Playerwise> = (state: State) => boolea
  * and a `number` representing the player, as arguments. Given the game `State`,
  * it calculates a reward for the player and returns that reward as a `number`.
  *
- * Normaly, you would want a win to return 1, a loss to return -1 and a draw
- * to return 0 but you can decide on a different reward scheme.
+ * Normally, you would want a win to return 1, a loss to return -1 and a draw
+ * to return 0, but you can decide on a different reward scheme.
  *
  * ### Example
  * ```javascript
@@ -178,16 +178,12 @@ export class MCTSNode<State, Action extends Actionwise> {
     mctsState: MCTSState<State>,
     possibleActions: Action[],
     action: Action,
-    // Identifcation of player to make a move for this state
+    // Identification of player to make a move for this state
     player: number
   ): MCTSNode<State, Action> {
     const node = new MCTSNode(mctsState, possibleActions, player, this, action)
     this.children_.push(node)
     return node
-  }
-
-  isNotFullyExpanded (): boolean {
-    return this.possibleActionsLeftToExpand_.length > 0
   }
 
   isExpanded (): boolean {
@@ -204,13 +200,13 @@ export class MCTSNode<State, Action extends Actionwise> {
 export class MCTSState<State> {
   // The predicted reward received by moving to this node
   private reward_: number
-  // The predicted backfilled value average of the node
+  // The predicted back propagated value average of the node
   private valueAvg_: number
   // The number of times this node has been visited
   private visits_: number
   // The predicted prior probability of choosing the action that leads to this node
   private prior_: number
-  // The backfilled value sum of the node
+  // The back propagated value sum of the node
   private valueSum_: number
   // The hidden state this node corresponds to
   private hiddenState_?: MuZeroHiddenState
@@ -256,7 +252,7 @@ export class MCTSState<State> {
   }
 
   /**
-   * The backfilled value sum of the node
+   * The back propagated value sum of the node
    */
   get valueSum (): number {
     return this.valueSum_
@@ -267,7 +263,7 @@ export class MCTSState<State> {
   }
 
   /**
-   * The predicted backfilled value average of the node
+   * The predicted back propagated value average of the node
    */
   get valueAvg (): number {
     return this.valueAvg_
@@ -278,7 +274,7 @@ export class MCTSState<State> {
   }
 
   /**
-   * The backfilled value average by visit of the node
+   * The back propagated value averaged by visit of the node
    */
   get value (): number {
     return this.visits_ > 0 ? this.valueSum_ / this.visits_ : 0
