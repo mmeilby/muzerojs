@@ -1,15 +1,15 @@
-import { type MuZeroSharedStorage } from '../training/sharedstorage'
-import { type MuZeroReplayBuffer } from '../replaybuffer/replaybuffer'
-import { MuZeroGameHistory } from './gamehistory'
-import { type MuZeroModel } from '../games/core/model'
-import { type Actionwise, MCTSNode, MCTSState, Normalizer, type Playerwise } from './entities'
-import { type MuZeroEnvironment } from '../games/core/environment'
+import { type SharedStorage } from '../training/sharedstorage'
+import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
+import { GameHistory } from './gamehistory'
+import { type Model } from '../games/core/model'
+import { Normalizer, type Playerwise } from './entities'
+import { type Environment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node'
-import {TranspositionTable, type DataGateway, NullDataStore} from './data-store'
 import debugFactory from 'debug'
 import { type NetworkOutput } from '../networks/networkoutput'
-import { type MuZeroConfig } from '../games/core/config'
-import { type MuZeroNetwork } from '../networks/nnet'
+import { type Config } from '../games/core/config'
+import { type Network } from '../networks/nnet'
+import {Action, Node} from "./mctsnode";
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
 const { jStat } = require('jstat')
@@ -20,11 +20,11 @@ const debug = debugFactory('muzero:selfplay:debug')
 /**
  * MuZeroSelfPlay - where the games are played
  */
-export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise> {
+export class SelfPlay<State extends Playerwise> {
   constructor (
-    private readonly config: MuZeroConfig,
-    private readonly env: MuZeroEnvironment<State, Action>,
-    private readonly model: MuZeroModel<State>
+    private readonly config: Config,
+    private readonly env: Environment<State>,
+    private readonly model: Model<State>
   ) {
   }
 
@@ -36,7 +36,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param storage
    * @param replayBuffer
    */
-  public async runSelfPlay (storage: MuZeroSharedStorage<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     info(`Self play initiated - running ${this.config.selfPlaySteps} steps`)
     for (let sim = 0; sim < this.config.selfPlaySteps; sim++) {
       const network = storage.latestNetwork()
@@ -54,7 +54,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param network
    * @param replayBuffer
    */
-  public async selfPlay (network: MuZeroNetwork<Action>, replayBuffer: MuZeroReplayBuffer<State, Action>): Promise<MuZeroGameHistory<State, Action>> {
+  public async selfPlay (network: Network, replayBuffer: ReplayBuffer<State>): Promise<GameHistory<State>> {
     info('Self play initiated - running a single step')
     const game = this.playGame(network)
     replayBuffer.saveGame(game)
@@ -72,13 +72,11 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param network
    * @private
    */
-  private playGame (network: MuZeroNetwork<Action>): MuZeroGameHistory<State, Action> {
-//    const dataStore = new TranspositionTable<State>(new Map())
-    const dataStore = new NullDataStore<State>()
-    const gameHistory = new MuZeroGameHistory(this.env, this.model)
+  private playGame (network: Network): GameHistory<State> {
+    const gameHistory = new GameHistory(this.env, this.model)
     // Play a game from start to end, register target data.old on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-      const rootNode = this.runMCTS(gameHistory, network, dataStore)
+      const rootNode = this.runMCTS(gameHistory, network)
       const action = this.selectAction(rootNode)
       if (debug.enabled) {
         const recommendedAction = this.env.expertAction(gameHistory.state)
@@ -102,19 +100,18 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * reach a leaf node.
    * @param gameHistory
    * @param network
-   * @param dataStore
    * @private
    */
-  private runMCTS (gameHistory: MuZeroGameHistory<State, Action>, network: MuZeroNetwork<Action>, dataStore: DataGateway<State>): MCTSNode<State, Action> {
+  private runMCTS (gameHistory: GameHistory<State>, network: Network): Node<State> {
     const minMaxStats = new Normalizer()
-    const rootNode: MCTSNode<State, Action> = this.createRootNode(gameHistory.state, dataStore)
+    const rootNode: Node<State> = this.createRootNode(gameHistory.state)
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
       const currentObservation = gameHistory.makeImage(-1)
       const networkOutput = network.initialInference(currentObservation)
       //      debug(`Network output: ${JSON.stringify(networkOutput)}`)
-      this.expandNode(rootNode, networkOutput, dataStore)
+      this.expandNode(rootNode, networkOutput)
     })
     // We also need to add exploration noise to the root node actions.
     // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
@@ -126,25 +123,27 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
       // If we can make an action for the root node let us descend the tree
       for (let sim = 0; sim < this.config.simulations; sim++) {
         let node = rootNode
+        const nodePath: Array<Node<State>> = [rootNode]
         const debugSearchTree: number[] = []
         while (node.isExpanded() && node.children.length > 0) {
           node = this.selectChild(node, minMaxStats)
+          nodePath.unshift(node)
           if (debug.enabled) {
             debugSearchTree.push(node.action?.id ?? -1)
           }
         }
-        debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.mctsState.prior}`)
+        debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.prior}`)
         tf.tidy(() => {
           // Inside the search tree we use the dynamics function to obtain the next
-          // hidden state given an action and the previous hidden state.
-          if (node.parent !== undefined && node.action !== undefined) {
+          // hidden state given an action and the previous hidden state (obtained from parent node).
+          if (nodePath.length > 1 && node.action !== undefined) {
             //            debug(`Hidden state: ${JSON.stringify(node.parent.mctsState.hiddenState)}`)
-            const networkOutput = network.recurrentInference(node.parent.mctsState.hiddenState, node.action)
-            this.expandNode(node, networkOutput, dataStore)
-            this.backPropagate(node, networkOutput.nValue, node.player, minMaxStats)
+            const networkOutput = network.recurrentInference(nodePath[1].hiddenState, node.action)
+            this.expandNode(node, networkOutput)
+            this.backPropagate(nodePath, networkOutput.nValue, node.player, minMaxStats)
           } else {
             debug('Recurrent inference attempted on a root node')
-            debug(`Node: ${JSON.stringify(node.mctsState)}`)
+            debug(`Node: ${JSON.stringify(node.state)}`)
             throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
           }
         })
@@ -153,21 +152,14 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     return rootNode
   }
 
-  private createRootNode (state: State, dataStore: DataGateway<State>): MCTSNode<State, Action> {
-    // Check to see if state is already in DataStore
-    let mctsState = dataStore.get(state)
-    // If it isn't, create a new MCTSState and store it
-    if (mctsState == null) {
-      mctsState = new MCTSState(state)
-      dataStore.set(state, mctsState)
-    }
+  private createRootNode (state: State): Node<State> {
     // Create new MCTSNode
-    return new MCTSNode(mctsState, this.env.legalActions(state), state.player)
+    return new Node(state, this.env.legalActions(state), state.player)
   }
 
-  private selectAction (rootNode: MCTSNode<State, Action>): Action {
+  private selectAction (rootNode: Node<State>): Action {
     const visitsTable = rootNode.children.map(child => {
-      return { action: child.action, visits: child.mctsState.visits }
+      return { action: child.action, visits: child.visits }
     })
     let action = 0
     if (visitsTable.length > 1) {
@@ -205,9 +197,9 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param minMaxStats
    * @private
    */
-  private selectChild (node: MCTSNode<State, Action>, minMaxStats: Normalizer): MCTSNode<State, Action> {
+  private selectChild (node: Node<State>, minMaxStats: Normalizer): Node<State> {
     if (node.children.length === 0) {
-      throw new Error(`SelectChild: No children available for selection. Parent state: ${node.mctsState.state.toString()}`)
+      throw new Error(`SelectChild: No children available for selection. Parent state: ${node.state.toString()}`)
     }
     if (node.children.length === 1) {
       return node.children[0]
@@ -240,23 +232,23 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * @param exploit
    * @private
    */
-  private ucbScore (parent: MCTSNode<State, Action>, child: MCTSNode<State, Action>, minMaxStats: Normalizer, exploit = false): number {
+  private ucbScore (parent: Node<State>, child: Node<State>, minMaxStats: Normalizer, exploit = false): number {
     if (exploit) {
       // For exploitation only we simply measure the number of visits
       // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
-      return child.mctsState.visits
+      return child.visits
     }
     const pbCbase = this.config.pbCbase
     const pbCinit = this.config.pbCinit
-    const c = Math.log((parent.mctsState.visits + pbCbase + 1) / pbCbase) + pbCinit
-    const pbC2 = Math.sqrt(parent.mctsState.visits) / (1 + child.mctsState.visits)
-    const priorScore = c * pbC2 * child.mctsState.prior
-    const valueScore = child.mctsState.visits > 0 ? minMaxStats.normalize(child.mctsState.reward + child.mctsState.value * this.config.decayingParam) : 0
+    const c = Math.log((parent.visits + pbCbase + 1) / pbCbase) + pbCinit
+    const pbC2 = Math.sqrt(parent.visits) / (1 + child.visits)
+    const priorScore = c * pbC2 * child.prior
+    const valueScore = child.visits > 0 ? minMaxStats.normalize(child.reward + child.value() * this.config.decayingParam) : 0
     if (Number.isNaN(priorScore)) {
       throw new Error('UCB: PriorScore is undefined')
     }
     if (Number.isNaN(valueScore)) {
-      debug(`Reward: ${child.mctsState.reward}, value: ${child.mctsState.value}`)
+      debug(`Reward: ${child.reward}, value: ${child.value()}`)
       throw new Error('UCB: ValueScore is undefined')
     }
     return priorScore + valueScore
@@ -267,66 +259,56 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
    * the neural network.
    * @param node
    * @param networkOutput
-   * @param dataStore
    * @private
    */
-  private expandNode (node: MCTSNode<State, Action>, networkOutput: NetworkOutput, dataStore: DataGateway<State>): void {
+  private expandNode (node: Node<State>, networkOutput: NetworkOutput): void {
     // save network predicted hidden state
-    node.mctsState.hiddenState = networkOutput.aHiddenState
+    node.hiddenState = networkOutput.aHiddenState
     // save network predicted reward
-    node.mctsState.reward = networkOutput.nReward
+    node.reward = networkOutput.nReward
     // save network predicted value
-    // TODO: IS THIS RIGHT???????  valueAvg is not used!
-    node.mctsState.valueAvg = networkOutput.nValue
     const policySum = networkOutput.policyMap.reduce((p: number, v: number) => p + v, 0)
     let action: Action | undefined
     while ((action = node.possibleActionsLeftToExpand.shift()) !== undefined) {
-      const state = this.env.step(node.mctsState.state, action)
-      // Check to see if state is already in Map
-      let mctsState = dataStore.get(state)
-      // If it isn't, create a new MCTSState and store it in the map
-      if (mctsState == null) {
-        mctsState = new MCTSState(state)
-        dataStore.set(state, mctsState)
-      }
-      const child = node.addChild(mctsState, this.env.legalActions(state), action, state.player)
+      const state = this.env.step(node.state, action)
+      const child = node.addChild(state, this.env.legalActions(state), action, state.player)
       const p = networkOutput.policyMap[action.id] ?? 0
-      child.mctsState.prior = p / policySum
+      child.prior = p / policySum
     }
   }
 
   /**
    * backPropagate - At the end of a simulation, we propagate the evaluation all the way up the
    * tree to the root.
-   * @param node
+   * @param nodePath
    * @param nValue
    * @param player
    * @param minMaxStats
    * @private
    */
-  private backPropagate (node: MCTSNode<State, Action>, nValue: number, player: number, minMaxStats: Normalizer): void {
+  private backPropagate (nodePath: Array<Node<State>>, nValue: number, player: number, minMaxStats: Normalizer): void {
     let value = nValue
-    let child: MCTSNode<State, Action> | undefined = node
-    while (child != null) {
+//    let child: Node<State> | undefined = node
+    for (let path = 0; path < nodePath.length; path++) {
+      // move to parent node
+      const child = nodePath[path]
       if (!Number.isFinite(value)) {
         debug(`nValue: ${nValue} value: ${value}`)
         throw new Error('BackPropagate: Supplied value is out of range')
       }
       // register visit
-      child.mctsState.visits++
-      child.mctsState.valueSum += child.samePlayer(player) ? value : -value
-      minMaxStats.update(child.mctsState.value)
+      child.visits++
+      child.valueSum += child.samePlayer(player) ? value : -value
+      minMaxStats.update(child.value())
       // decay value and include network predicted reward
-      value = child.mctsState.reward + this.config.decayingParam * value
-      // move to parent node
-      child = child.parent
+      value = child.reward + this.config.decayingParam * value
     }
   }
 
   // At the start of each search, we add dirichlet noise to the prior of the root
   // to encourage the search to explore new actions.
   // For chess, root_dirichlet_alpha = 0.3
-  private addExplorationNoise (node: MCTSNode<State, Action>): void {
+  private addExplorationNoise (node: Node<State>): void {
     // make dirichlet noise vector
     const noise: number[] = []
     let sumNoise = 0
@@ -341,7 +323,7 @@ export class MuZeroSelfPlay<State extends Playerwise, Action extends Actionwise>
     }
     const frac = this.config.rootExplorationFraction
     node.children.forEach((child, i) => {
-      child.mctsState.prior = child.mctsState.prior * (1 - frac) + noise[i] * frac
+      child.prior = child.prior * (1 - frac) + noise[i] * frac
     })
   }
 

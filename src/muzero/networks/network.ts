@@ -2,21 +2,21 @@ import * as tf from '@tensorflow/tfjs-node'
 import { type Scalar, type Tensor, tensor } from '@tensorflow/tfjs-node'
 import { scalarToSupport, supportToScalar } from './utils'
 import { NetworkOutput } from './networkoutput'
-import { type MuZeroBatch } from '../replaybuffer/batch'
+import { type Batch } from '../replaybuffer/batch'
 import { type Actionwise } from '../selfplay/entities'
-import { type MuZeroHiddenState, type MuZeroNetwork, type MuZeroObservation } from './nnet'
+import { type HiddenState, type Network, type Observation } from './nnet'
 import debugFactory from 'debug'
-import { type MuZeroTarget } from '../replaybuffer/target'
+import { type Target } from '../replaybuffer/target'
 
 const debug = debugFactory('muzero:network:debug')
 
-export class MuZeroNetObservation implements MuZeroObservation {
+export class NetworkObservation implements Observation {
   constructor (
     public observation: number[]
   ) {}
 }
 
-class MuZeroNetHiddenState implements MuZeroHiddenState {
+class NetworkHiddenState implements HiddenState {
   constructor (
     public state: number[]
   ) {}
@@ -45,7 +45,7 @@ class LossLog {
   }
 }
 
-export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Action> {
+export class MuZeroNet implements Network {
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
   // Length of the reward representation tensors (number of bins)
@@ -172,13 +172,13 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * Execute h(o)->s f(s)->p,v
    * @param obs
    */
-  public initialInference (obs: MuZeroObservation): NetworkOutput {
-    if (!(obs instanceof MuZeroNetObservation)) {
+  public initialInference (obs: Observation): NetworkOutput {
+    if (!(obs instanceof NetworkObservation)) {
       throw new Error('Incorrect observation applied to initialInference')
     }
     const observation = tf.tensor1d(obs.observation).reshape([1, -1])
     const tfHiddenState = this.representationModel.predict(observation) as tf.Tensor
-    const hiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
+    const hiddenState: NetworkHiddenState = new NetworkHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
     const reward = 0
     const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
     const policy = this.inversePolicyTransform(tfPolicy)
@@ -193,13 +193,13 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
    * @param hiddenState
    * @param action
    */
-  public recurrentInference (hiddenState: MuZeroHiddenState, action: Actionwise): NetworkOutput {
-    if (!(hiddenState instanceof MuZeroNetHiddenState)) {
+  public recurrentInference (hiddenState: HiddenState, action: Actionwise): NetworkOutput {
+    if (!(hiddenState instanceof NetworkHiddenState)) {
       throw new Error('Incorrect hidden state applied to recurrentInference')
     }
     const conditionedHiddenState = tf.concat([tf.tensor2d([hiddenState.state]), this.policyTransform(action.id)], 1)
     const tfHiddenState = this.dynamicsModel.predict(conditionedHiddenState) as tf.Tensor
-    const newHiddenState: MuZeroNetHiddenState = new MuZeroNetHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
+    const newHiddenState: NetworkHiddenState = new NetworkHiddenState(tfHiddenState.reshape([-1]).arraySync() as number[])
     const tfReward = this.rewardModel.predict(conditionedHiddenState) as tf.Tensor
     const reward = this.inverseRewardTransform(tfReward)
     const tfPolicy = this.policyModel.predict(tfHiddenState) as tf.Tensor
@@ -209,7 +209,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
 
-  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
+  public trainInference (samples: Array<Batch>): number[] {
     debug(`Training sample set of ${samples.length} games`)
     const f = () => {
       const batchLosses: LossLog = new LossLog()
@@ -246,8 +246,8 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return [loss, 0]
   }
 
-  public calculatePredictions (batch: MuZeroBatch<Actionwise>): Prediction[] {
-    const observation = tf.tensor1d((batch.image as MuZeroNetObservation).observation).reshape([1, -1])
+  public calculatePredictions (batch: Batch): Prediction[] {
+    const observation = tf.tensor1d((batch.image as NetworkObservation).observation).reshape([1, -1])
     const tfHiddenState = this.representationModel.predict(observation) as tf.Tensor
     // Gradient scaling controls the representation network training. To prevent training set scale = 0
     let state = this.scaleGradient(tfHiddenState, 1)
@@ -278,7 +278,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     return predictions
   }
 
-  public measureLoss (predictions: Prediction[], targets: MuZeroTarget[]): LossLog {
+  public measureLoss (predictions: Prediction[], targets: Target[]): LossLog {
     const batchTotalLoss: LossLog = new LossLog()
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
@@ -442,7 +442,7 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
     rm.dispose()
   }
 
-  public copyWeights (network: MuZeroNetwork<Action>): void {
+  public copyWeights (network: Network): void {
     if (!(network instanceof MuZeroNet)) {
       throw new Error('Incorrect network applied to copy weights')
     }
@@ -463,14 +463,16 @@ export class MuZeroNet<Action extends Actionwise> implements MuZeroNetwork<Actio
         .concat(this.rewardModel.getWeights())
   }
 
-  /*
-  private dispose (): number {
+  public dispose (): number {
     let disposed = 0
-    disposed += this.initialInferenceModel.dispose().numDisposedVariables
-    disposed += this.recurrentInferenceModel.dispose().numDisposedVariables
+    disposed += this.representationModel.dispose().numDisposedVariables
+    disposed += this.valueModel.dispose().numDisposedVariables
+    disposed += this.policyModel.dispose().numDisposedVariables
+    disposed += this.dynamicsModel.dispose().numDisposedVariables
+    disposed += this.rewardModel.dispose().numDisposedVariables
     return disposed
   }
-
+/*
   private trainingSteps (): number {
     return 1
   }

@@ -1,4 +1,4 @@
-import { MuZeroHiddenState } from './nnet'
+import { HiddenState } from './nnet'
 import {scalar, Tensor, tensor} from "@tensorflow/tfjs-node";
 
 export class NetworkOutput {
@@ -10,7 +10,7 @@ export class NetworkOutput {
     public nValue: number,
     public nReward: number,
     public policyMap: number[],
-    public aHiddenState: MuZeroHiddenState
+    public aHiddenState: HiddenState
   ) {
     this.tfValue = scalar(0)
     this.tfReward = scalar(0)

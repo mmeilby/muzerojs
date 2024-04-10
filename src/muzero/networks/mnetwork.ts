@@ -1,35 +1,35 @@
 import * as tf from '@tensorflow/tfjs-node'
 import { NetworkOutput } from './networkoutput'
-import { MuZeroBatch } from '../replaybuffer/batch'
-import { Actionwise, Playerwise } from '../selfplay/entities'
-import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
-import { MuZeroEnvironment } from '../games/core/environment'
-import {MuZeroNetObservation} from "./network";
+import { Batch } from '../replaybuffer/batch'
+import { Playerwise } from '../selfplay/entities'
+import { HiddenState, Network, Observation } from './nnet'
+import { Environment } from '../games/core/environment'
+import {Action} from "../selfplay/mctsnode";
 
-class MuZeroMockedObservation<State> implements MuZeroObservation {
+class MockedObservation<State> implements Observation {
   constructor (
     public state: State
   ) {}
 }
 
-class MuZeroMockedHiddenState<State> implements MuZeroHiddenState {
+class MockedHiddenState<State> implements HiddenState {
   constructor (
     public state: State
   ) {}
 }
 
-export class MuZeroMockedNetwork<State extends Playerwise, Action extends Actionwise> implements MuZeroNetwork<Action> {
+export class MockedNetwork<State extends Playerwise> implements Network {
   // Length of the action tensors
   protected readonly actionSpaceN: number
 
   constructor (
-    private readonly env: MuZeroEnvironment<State, Action>
+    private readonly env: Environment<State>
   ) {
-    this.actionSpaceN = env.config().actionSpaceSize
+    this.actionSpaceN = env.config().actionSpace
   }
 
-  public initialInference (obs: MuZeroObservation): NetworkOutput {
-    if (!(obs instanceof MuZeroMockedObservation<State>)) {
+  public initialInference (obs: Observation): NetworkOutput {
+    if (!(obs instanceof MockedObservation<State>)) {
       throw new Error(`Incorrect observation applied to initialInference`)
     }
     // The mocked network will respond with the perfect move
@@ -37,13 +37,13 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     const reward = this.env.reward(obs.state, obs.state.player)
     const value = reward
     const tfPolicy = this.policyTransform(action.id)
-    const hiddenState = new MuZeroMockedHiddenState(obs.state)
+    const hiddenState = new MockedHiddenState(obs.state)
     const policy = tfPolicy.arraySync() as number[]
     return new NetworkOutput(value, reward, policy, hiddenState)
   }
 
-  public recurrentInference (hiddenState: MuZeroHiddenState, action: Action): NetworkOutput {
-    if (!(hiddenState instanceof MuZeroMockedHiddenState)) {
+  public recurrentInference (hiddenState: HiddenState, action: Action): NetworkOutput {
+    if (!(hiddenState instanceof MockedHiddenState)) {
       throw new Error(`Incorrect hidden state applied to recurrentInference`)
     }
     // The mocked network will respond with the perfect move
@@ -53,11 +53,11 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     const value = reward
     const tfPolicy = this.policyTransform(newAction.id)
     const policy = tfPolicy.arraySync() as number[]
-    const newHiddenState = new MuZeroMockedHiddenState(newState)
+    const newHiddenState = new MockedHiddenState(newState)
     return new NetworkOutput(value, reward, policy, newHiddenState)
   }
 
-  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
+  public trainInference (samples: Array<Batch>): number[] {
     // Return the perfect loss and accuracy of 100%
     return [0, 1]
   }
@@ -70,7 +70,7 @@ export class MuZeroMockedNetwork<State extends Playerwise, Action extends Action
     // We can't load any data.old to a mocked network - ignore
   }
 
-  public copyWeights (network: MuZeroNetwork<Action>): void {
+  public copyWeights (network: Network): void {
     // A mocked network does not have any data.old to copy - leave the target network untouched
   }
 

@@ -1,16 +1,18 @@
-import { MuZeroAction } from './core/action'
 import * as tf from '@tensorflow/tfjs-node'
-import { MuZeroEnvironment } from './core/environment'
+import { Environment } from './core/environment'
 import { Playerwise } from '../selfplay/entities'
-import { MuZeroModel } from './core/model'
+import { Model } from './core/model'
+import {Action} from "../selfplay/mctsnode";
+import {Config} from "./core/config";
+import {ConnectFourNetModel} from "./connectfour";
 
 export class MuZeroTicTacToeState implements Playerwise {
   private readonly _key: string
   private readonly _player: number
   private readonly _board: number[][]
-  private readonly _history: MuZeroAction[]
+  private readonly _history: Action[]
 
-  constructor (player: number, board: number[][], history: MuZeroAction[]) {
+  constructor (player: number, board: number[][], history: Action[]) {
     this._key = history.length > 0 ? history.map(a => a.id).join(':') : '*'
     this._player = player
     this._board = board
@@ -25,7 +27,7 @@ export class MuZeroTicTacToeState implements Playerwise {
     return this._board
   }
 
-  get history (): MuZeroAction[] {
+  get history (): Action[] {
     return this._history
   }
 
@@ -34,20 +36,31 @@ export class MuZeroTicTacToeState implements Playerwise {
   }
 }
 
-export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, MuZeroAction> {
-  config (): { actionSpaceSize: number, boardSize: number, supportSize: number } {
-    return {
-      actionSpaceSize: 9,
-      boardSize: 9,
-      supportSize: 10
-    }
+export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
+  config (): Config {
+    const actionSpace = 9
+    const boardSize = 9
+    const supportSize = 10
+    const conf = new Config(actionSpace, new TicTacToeNetModel().observationSize)
+    conf.maxMoves = actionSpace
+    conf.decayingParam = 0.997
+    conf.rootDirichletAlpha = 0.25
+    conf.simulations = 150
+    conf.batchSize = 100
+    conf.tdSteps = 7
+    conf.lrInit = 0.0001
+    conf.trainingSteps = 200
+    conf.replayBufferSize = 50
+    conf.numUnrollSteps = actionSpace
+    conf.lrDecayRate = 0.1
+    return conf
   }
 
   public reset (): MuZeroTicTacToeState {
     return new MuZeroTicTacToeState(1, [[0, 0, 0], [0, 0, 0], [0, 0, 0]], [])
   }
 
-  public step (state: MuZeroTicTacToeState, action: MuZeroAction): MuZeroTicTacToeState {
+  public step (state: MuZeroTicTacToeState, action: Action): MuZeroTicTacToeState {
     const boardCopy = state.board.map(r => [...r])
     const row = Math.floor(action.id / 3)
     const col = action.id % 3
@@ -55,13 +68,13 @@ export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, 
     return new MuZeroTicTacToeState(-state.player, boardCopy, state.history.concat([action]))
   }
 
-  public legalActions (state: MuZeroTicTacToeState): MuZeroAction[] {
+  public legalActions (state: MuZeroTicTacToeState): Action[] {
     const legal = []
     for (let i = 0; i < 9; i++) {
       const row = Math.floor(i / 3)
       const col = i % 3
       if (state.board[row][col] === 0) {
-        legal.push(new MuZeroAction(i))
+        legal.push({ id: i })
       }
     }
     return legal
@@ -101,7 +114,7 @@ export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, 
     return MuZeroTicTacToe.haveWinner(state) !== 0 || this.legalActions(state).length === 0
   }
 
-  public expertAction (state: MuZeroTicTacToeState): MuZeroAction {
+  public expertAction (state: MuZeroTicTacToeState): Action {
     const paths = MuZeroTicTacToe.winningPaths()
     const actions = this.legalActions(state)
     const scoreTable = []
@@ -119,7 +132,7 @@ export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, 
       scoreTable.push({ action, score: tf.tensor1d(scores).max().bufferSync().get(0) })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : new MuZeroAction(-1)
+    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
   }
 
   public toString (state: MuZeroTicTacToeState): string {
@@ -142,7 +155,7 @@ export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, 
 
   public deserialize (stream: string): MuZeroTicTacToeState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroTicTacToeState(player, board, history.map((a: number) => new MuZeroAction(a)))
+    return new MuZeroTicTacToeState(player, board, history.map((a: number) => { return { id: a }}))
   }
 
   public serialize (state: MuZeroTicTacToeState): string {
@@ -150,7 +163,7 @@ export class MuZeroTicTacToe implements MuZeroEnvironment<MuZeroTicTacToeState, 
   }
 }
 
-export class TicTacToeNetModel implements MuZeroModel<MuZeroTicTacToeState> {
+export class TicTacToeNetModel implements Model<MuZeroTicTacToeState> {
   get observationSize (): number {
     return 27
   }

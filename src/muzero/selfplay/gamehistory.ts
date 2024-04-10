@@ -1,22 +1,25 @@
-import { MuZeroEnvironment } from '../games/core/environment'
-import { Actionwise, MCTSNode, Playerwise } from './entities'
-import { MuZeroModel } from '../games/core/model'
-import { MuZeroTarget } from '../replaybuffer/target'
-import { MuZeroObservation } from '../networks/nnet'
+import { Environment } from '../games/core/environment'
+import { Playerwise } from './entities'
+import { Model } from '../games/core/model'
+import { Target } from '../replaybuffer/target'
+import { Observation } from '../networks/nnet'
+import {Action, Node} from "./mctsnode";
 
-interface MuZeroGameHistoryObject {
+interface GameHistoryObject {
   actionHistory: number[]
   childVisits: number[][]
   rootValues: number[]
   priorities: number[]
   gamePriority: number
 }
-export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwise> {
-  private readonly environment: MuZeroEnvironment<State, Action> // Game specific environment.
-  private readonly model: MuZeroModel<State>
+
+export class GameHistory<State extends Playerwise> {
+  private readonly environment: Environment<State> // Game specific environment.
+  private readonly model: Model<State>
+  private readonly actionSpace: number
   private _state: State
   // A list of observation input tensors for the representation network at each turn of the game
-  private readonly observationHistory: MuZeroObservation[]
+  private readonly observationHistory: Observation[]
   // A list of actions taken at each turn of the game
   public readonly actionHistory: Action[]
   // A list of true rewards received at each turn of the game related to the player to act
@@ -34,11 +37,12 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
   public gamePriority: number
 
   constructor (
-    environment: MuZeroEnvironment<State, Action>,
-    model: MuZeroModel<State>
+    environment: Environment<State>,
+    model: Model<State>
   ) {
     this.environment = environment
     this.model = model
+    this.actionSpace = this.environment.config().actionSpace
     this._state = environment.reset()
     this.observationHistory = [this.model.observation(this._state)]
     this.actionHistory = []
@@ -74,12 +78,12 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     return state
   }
 
-  public storeSearchStatistics (rootNode: MCTSNode<State, Action>): void {
-    this.childVisits.push(rootNode.policy(this.environment.config().actionSpaceSize))
-    this.rootValues.push(rootNode.mctsState.value)
+  public storeSearchStatistics (rootNode: Node<State>): void {
+    this.childVisits.push(rootNode.policy(this.actionSpace))
+    this.rootValues.push(rootNode.value())
   }
 
-  public makeImage (stateIndex: number): MuZeroObservation {
+  public makeImage (stateIndex: number): Observation {
     const image = this.observationHistory.at(stateIndex)
     if (image === undefined) {
       throw new Error(`Invalid index used for makeImage(${stateIndex})`)
@@ -97,7 +101,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
    * the target value
    * @param discount Chronological discount of the reward
    */
-  public makeTarget (stateIndex: number, numUnrollSteps: number, tdSteps: number, discount: number): MuZeroTarget[] {
+  public makeTarget (stateIndex: number, numUnrollSteps: number, tdSteps: number, discount: number): Target[] {
     // Convert to positive index
     const index = stateIndex % this.actionHistory.length
     const targets = []
@@ -162,11 +166,11 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     return this.environment.toString(this._state)
   }
 
-  public deserialize (stream: string): Array<MuZeroGameHistory<State, Action>> {
-    const games: Array<MuZeroGameHistory<State, Action>> = []
-    const objects: MuZeroGameHistoryObject[] = JSON.parse(stream)
+  public deserialize (stream: string): Array<GameHistory<State>> {
+    const games: Array<GameHistory<State>> = []
+    const objects: GameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
-      const game = new MuZeroGameHistory(this.environment, this.model)
+      const game = new GameHistory(this.environment, this.model)
       object.actionHistory.forEach(oAction => {
         const action = game.legalActions().find(a => a.id === oAction)
         if (action !== undefined) {
@@ -182,7 +186,7 @@ export class MuZeroGameHistory<State extends Playerwise, Action extends Actionwi
     return games
   }
 
-  public serialize (): MuZeroGameHistoryObject {
+  public serialize (): GameHistoryObject {
     return {
       actionHistory: this.actionHistory.map(a => a.id),
       rootValues: this.rootValues,

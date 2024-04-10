@@ -1,13 +1,14 @@
-import { MuZeroTarget } from './target'
-import { MuZeroObservation } from '../networks/nnet'
+import { Target } from './target'
+import { Observation } from '../networks/nnet'
+import {Action} from "../selfplay/mctsnode";
 
-export class MuZeroBatch<Action> {
+export class Batch {
   constructor (
     // Observation image for first state in the batch
-    public readonly image: MuZeroObservation,
+    public readonly image: Observation,
     // Sequence of actions played for this batch
     public readonly actions: Action[],
     // Targets for each turn played by executing the corresponding action
-    public readonly targets: MuZeroTarget[]
+    public readonly targets: Target[]
   ) {}
 }

@@ -1,17 +1,14 @@
 import { describe, test, expect } from '@jest/globals'
 import { MuZeroNim } from '../../muzero/games/nim/nim'
 import { NimNetModel } from '../../muzero/games/nim/nimmodel'
-import { MuZeroConfig } from '../../muzero/games/core/config'
-import { type MuZeroNetObservation } from '../../muzero/networks/network'
-import { MuZeroAction } from '../../muzero/games/core/action'
+import { type NetworkObservation } from '../../muzero/networks/network'
 import { MuZeroNimUtil } from '../../muzero/games/nim/nimutil'
+import {Action} from "../../muzero/selfplay/mctsnode";
 
 describe('Nim Unit Test:', () => {
   const factory = new MuZeroNim()
   const model = new NimNetModel()
   const support = new MuZeroNimUtil()
-  const config = factory.config()
-  const conf = new MuZeroConfig(config.actionSpaceSize, model.observationSize)
   test('Check the Nim Game', async () => {
     const state = factory.reset()
     // validate move labels
@@ -23,7 +20,7 @@ describe('Nim Unit Test:', () => {
     expect(factory.legalActions(state).map(a => support.actionToString(a))).toEqual(
       ['H1-1', 'H2-1', 'H2-2', 'H3-1', 'H3-2', 'H3-3', 'H4-1', 'H4-2', 'H4-3', 'H4-4', 'H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
-    const obs = model.observation(state) as MuZeroNetObservation
+    const obs = model.observation(state) as NetworkObservation
     expect(obs.observation.toString()).toEqual('1,0,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,1,1,0,1,1,1,1,1')
     const s1 = factory.step(state, support.actionFromString('H1-1'))
     expect(s1.board.toString()).toEqual('0,2,3,4,5')
@@ -79,11 +76,11 @@ describe('Nim Unit Test:', () => {
     const [player, board, history] = JSON.parse(factory.serialize(s4))
     expect(player).toEqual(1)
     expect(board).toEqual([0, 0, 0, 4, 5])
-    expect(history.map((a: number) => support.actionToString(new MuZeroAction(a)))).toEqual(['H1-1', 'H3-3', 'H2-1', 'H2-1'])
+    expect(history.map((a: number) => support.actionToString({ id: a }))).toEqual(['H1-1', 'H3-3', 'H2-1', 'H2-1'])
     const deserializedState = factory.deserialize(factory.serialize(s4))
     expect(deserializedState.player).toEqual(1)
     expect(deserializedState.board).toEqual([0, 0, 0, 4, 5])
-    expect(deserializedState.history.map((a: MuZeroAction) => support.actionToString(a))).toEqual(['H1-1', 'H3-3', 'H2-1', 'H2-1'])
+    expect(deserializedState.history.map((a: Action) => support.actionToString(a))).toEqual(['H1-1', 'H3-3', 'H2-1', 'H2-1'])
   })
   test('Check specific Nim Game', async () => {
     const state = factory.reset()

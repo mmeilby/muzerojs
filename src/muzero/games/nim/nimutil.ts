@@ -1,5 +1,5 @@
-import { MuZeroAction } from '../core/action'
 import { util } from './nimconfig'
+import {Action} from "../../selfplay/mctsnode";
 
 /**
  * NIM game implementation
@@ -24,15 +24,15 @@ export class MuZeroNimUtil {
     return this.nimming(action)
   }
 
-  public heapNimmingToAction (heap: number, nimming: number): MuZeroAction {
+  public heapNimmingToAction (heap: number, nimming: number): Action {
     let action = nimming
     for (let h = 0; h < heap; h++) {
       action += util.heapMap[h]
     }
-    return new MuZeroAction(action)
+    return { id: action }
   }
 
-  public actionToString (action: MuZeroAction): string {
+  public actionToString (action: Action): string {
     if (action.id < 0) {
       return 'H?-?'
     }
@@ -41,10 +41,10 @@ export class MuZeroNimUtil {
     return `H${heap + 1}-${nimmingSize + 1}`
   }
 
-  public actionFromString (action: string): MuZeroAction {
+  public actionFromString (action: string): Action {
     const [sHeap, sNimming] = action.split('-')
     if (sHeap.includes('?') && sNimming.includes('?')) {
-      return new MuZeroAction(-1)
+      return { id: -1 }
     } else {
       return this.heapNimmingToAction(Number.parseInt(sHeap.slice(1)) - 1, Number.parseInt(sNimming) - 1)
     }

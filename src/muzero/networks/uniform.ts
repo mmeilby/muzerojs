@@ -1,30 +1,30 @@
 import { NetworkOutput } from './networkoutput'
-import { MuZeroBatch } from '../replaybuffer/batch'
-import { Actionwise, Playerwise } from '../selfplay/entities'
-import { MuZeroHiddenState, MuZeroNetwork, MuZeroObservation } from './nnet'
+import { Batch } from '../replaybuffer/batch'
+import { HiddenState, Network, Observation } from './nnet'
+import {Action} from "../selfplay/mctsnode";
 
-class MuZeroUniformHiddenState implements MuZeroHiddenState {
+class UniformHiddenState implements HiddenState {
 }
 
-export class MuZeroUniformNetwork<State extends Playerwise, Action extends Actionwise> implements MuZeroNetwork<Action> {
+export class UniformNetwork implements Network {
   constructor (
     // Length of the action tensors
     private readonly actionSpace: number
   ) {}
 
-  public initialInference (obs: MuZeroObservation): NetworkOutput {
-    const hiddenState = new MuZeroUniformHiddenState()
+  public initialInference (obs: Observation): NetworkOutput {
+    const hiddenState = new UniformHiddenState()
     const policy = new Array<number>(this.actionSpace).fill(1 / this.actionSpace)
     return new NetworkOutput(0, 0, policy, hiddenState)
   }
 
-  public recurrentInference (hiddenState: MuZeroHiddenState, action: Action): NetworkOutput {
-    const newHiddenState = new MuZeroUniformHiddenState()
+  public recurrentInference (hiddenState: HiddenState, action: Action): NetworkOutput {
+    const newHiddenState = new UniformHiddenState()
     const policy = new Array<number>(this.actionSpace).fill(1 / this.actionSpace)
     return new NetworkOutput(0, 0, policy, newHiddenState)
   }
 
-  public trainInference (samples: Array<MuZeroBatch<Actionwise>>): number[] {
+  public trainInference (samples: Array<Batch>): number[] {
     // A uniform network should never be trained
     throw new Error('Training has been attempted on a uniform mocked network. This is not allowed.')
   }
@@ -38,7 +38,7 @@ export class MuZeroUniformNetwork<State extends Playerwise, Action extends Actio
     throw new Error('Load weights has been attempted on a uniform mocked network. This is not allowed.')
   }
 
-  public copyWeights (network: MuZeroNetwork<Action>): void {
+  public copyWeights (network: Network): void {
     // A uniform network does not have any data.old to copy - leave the target network untouched
   }
 }

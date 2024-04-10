@@ -1,9 +1,11 @@
-import { MuZeroAction } from '../core/action'
-import { type MuZeroEnvironment } from '../core/environment'
+import { type Environment } from '../core/environment'
 import { MuZeroNimState } from './nimstate'
 import { config, util } from './nimconfig'
 import debugFactory from 'debug'
 import { MuZeroNimUtil } from './nimutil'
+import {Action} from "../../selfplay/mctsnode";
+import {Config} from "../core/config";
+import {NimNetModel} from "./nimmodel";
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -13,19 +15,25 @@ const debug = debugFactory('muzero:nim:module')
  * For games history, rules, and theory check out wikipedia:
  * https://en.wikipedia.org/wiki/Nim
  */
-export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction> {
+export class MuZeroNim implements Environment<MuZeroNimState> {
   private readonly support = new MuZeroNimUtil()
+  private readonly actionSpace = util.heapMap.reduce((s, h) => s + h, 0)
 
   /**
    * config
    *  actionSpaceSize number of actions allowed for this game
    *  boardSize number of board positions for this game
    */
-  config (): { actionSpaceSize: number, boardSize: number } {
-    return {
-      actionSpaceSize: util.heapMap.reduce((s, h) => s + h, 0),
-      boardSize: config.heaps
-    }
+  config (): Config {
+    const boardSize = config.heaps
+    const conf = new Config(this.actionSpace, new NimNetModel().observationSize)
+    conf.decayingParam = 0.997
+    conf.rootDirichletAlpha = 0.25
+    conf.simulations = 150
+    conf.lrInit = 0.0001
+    conf.lrDecayRate = 0.1
+    conf.savedNetworkPath = 'nim'
+    return conf
   }
 
   public reset (): MuZeroNimState {
@@ -33,7 +41,7 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     return new MuZeroNimState(1, board, [])
   }
 
-  public step (state: MuZeroNimState, action: MuZeroAction): MuZeroNimState {
+  public step (state: MuZeroNimState, action: Action): MuZeroNimState {
     const boardCopy = [...state.board]
     const heap = this.support.actionToHeap(action.id)
     const nimmingSize = this.support.actionToNimming(action.id) + 1
@@ -41,7 +49,7 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     return new MuZeroNimState(-state.player, boardCopy, state.history.concat([action]))
   }
 
-  public legalActions (state: MuZeroNimState): MuZeroAction[] {
+  public legalActions (state: MuZeroNimState): Action[] {
     const legal = []
     for (let i = 0; i < config.heaps; i++) {
       for (let id = 0; id < state.board[i]; id++) {
@@ -95,19 +103,19 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     return this.haveWinner(state) !== 0 // || this.legalActions(state).length === 0
   }
 
-  public expertAction (state: MuZeroNimState): MuZeroAction {
+  public expertAction (state: MuZeroNimState): Action {
     const scoreTable = this.rankMoves(state)
     if (scoreTable.length > 0) {
       const topActions = scoreTable.filter(st => st.score === scoreTable[0].score).map(st => st.action)
       return topActions[Math.floor(Math.random() * topActions.length)]
     } else {
-      return new MuZeroAction(-1)
+      return { id: -1 }
     }
   }
 
   public expertActionPolicy (state: MuZeroNimState): number[] {
     const scoreTable = this.rankMoves(state)
-    const policy: number[] = new Array<number>(this.config().actionSpaceSize).fill(0)
+    const policy: number[] = new Array<number>(this.actionSpace).fill(0)
     scoreTable.forEach(s => { policy[s.action.id] = s.score })
     if (policy.every(p => p <= 0)) {
       const sum = policy.reduce((s, p) => s - p)
@@ -118,10 +126,10 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
     }
   }
 
-  private rankMoves (state: MuZeroNimState): Array<{ action: MuZeroAction, score: number }> {
+  private rankMoves (state: MuZeroNimState): Array<{ action: Action, score: number }> {
     debug(`Move ranking requested for: ${this.toString(state)}`)
     const actions = this.legalActions(state)
-    const scoreTable: Array<{ action: MuZeroAction, score: number }> = []
+    const scoreTable: Array<{ action: Action, score: number }> = []
     for (const action of actions) {
       const heap = this.support.actionToHeap(action.id)
       const nimmingSize = this.support.actionToNimming(action.id) + 1
@@ -182,7 +190,7 @@ export class MuZeroNim implements MuZeroEnvironment<MuZeroNimState, MuZeroAction
 
   public deserialize (stream: string): MuZeroNimState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroNimState(player, board, history.map((a: number) => new MuZeroAction(a)))
+    return new MuZeroNimState(player, board, history.map((a: number) => { return { id: a }}))
   }
 
   public serialize (state: MuZeroNimState): string {

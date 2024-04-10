@@ -1,17 +1,17 @@
 import { type Playerwise } from '../../selfplay/entities'
-import { type MuZeroAction } from '../core/action'
 import { CartPole, type CartPoleDataSet } from './cartpole'
-import type { MuZeroModel } from '../core/model'
-import type { MuZeroObservation } from '../../networks/nnet'
-import { MuZeroNetObservation } from '../../networks/network'
+import type { Model } from '../core/model'
+import type { Observation } from '../../networks/nnet'
+import { NetworkObservation } from '../../networks/network'
+import {Action} from "../../selfplay/mctsnode";
 
 export class MuZeroCartpoleState extends CartPole implements Playerwise {
   private readonly _key: string
   private readonly _player: number
   private readonly _dataset: CartPoleDataSet
-  private readonly _history: MuZeroAction[]
+  private readonly _history: Action[]
 
-  constructor (dataset: CartPoleDataSet, history: MuZeroAction[]) {
+  constructor (dataset: CartPoleDataSet, history: Action[]) {
     super()
     this._key = history.length > 0 ? history.map(a => a.id).join(':') : '*'
     this._player = 1
@@ -27,7 +27,7 @@ export class MuZeroCartpoleState extends CartPole implements Playerwise {
     return this._dataset
   }
 
-  get history (): MuZeroAction[] {
+  get history (): Action[] {
     return this._history
   }
 
@@ -36,10 +36,10 @@ export class MuZeroCartpoleState extends CartPole implements Playerwise {
   }
 }
 
-export class CartpoleNetModel implements MuZeroModel<MuZeroCartpoleState> {
+export class CartpoleNetModel implements Model<MuZeroCartpoleState> {
   public readonly observationSize = 4
 
-  public observation (state: MuZeroCartpoleState): MuZeroObservation {
-    return new MuZeroNetObservation([state.dataset.x, state.dataset.xDot, state.dataset.theta, state.dataset.thetaDot])
+  public observation (state: MuZeroCartpoleState): Observation {
+    return new NetworkObservation([state.dataset.x, state.dataset.xDot, state.dataset.theta, state.dataset.thetaDot])
   }
 }

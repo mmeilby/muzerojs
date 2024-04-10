@@ -1,9 +1,9 @@
-import { Actionwise, Playerwise } from '../selfplay/entities'
-import { MuZeroGameHistory } from '../selfplay/gamehistory'
+import { Playerwise } from '../selfplay/entities'
+import { GameHistory } from '../selfplay/gamehistory'
 
-export class MuZeroGameSample<State extends Playerwise, Action extends Actionwise> {
+export class MuZeroGameSample<State extends Playerwise> {
   constructor (
-    public readonly gameHistory: MuZeroGameHistory<State, Action>,
+    public readonly gameHistory: GameHistory<State>,
     public readonly probability: number
   ) {}
 }

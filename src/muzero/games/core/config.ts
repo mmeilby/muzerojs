@@ -1,4 +1,4 @@
-export class MuZeroConfig {
+export class Config {
   // ---------------------------------
   // Model configuration
 
@@ -62,6 +62,8 @@ export class MuZeroConfig {
   private _trainingSteps?: number
   // Number of training steps before using the model for self-playing
   private _checkpointInterval?: number
+  // Game specific path for saved network weights
+  private _savedNetworkPath?: string
 
   // L2 weights regularization
   private _weightDecay?: number
@@ -158,6 +160,10 @@ export class MuZeroConfig {
 
   get checkpointInterval (): number {
     return this._checkpointInterval ?? 25
+  }
+
+  get savedNetworkPath (): string {
+    return this._savedNetworkPath ?? ''
   }
 
   get weightDecay (): number {
@@ -260,6 +266,10 @@ export class MuZeroConfig {
 
   set checkpointInterval (value: number) {
     this._checkpointInterval = value
+  }
+
+  set savedNetworkPath (value: string) {
+    this._savedNetworkPath = value
   }
 
   set weightDecay (value: number) {

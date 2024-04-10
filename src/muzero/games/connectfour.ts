@@ -1,16 +1,17 @@
-import { MuZeroAction } from './core/action'
 import * as tf from '@tensorflow/tfjs-node'
-import { MuZeroEnvironment } from './core/environment'
+import { Environment } from './core/environment'
 import { Playerwise } from '../selfplay/entities'
-import { MuZeroModel } from './core/model'
+import { Model } from './core/model'
+import {Action} from "../selfplay/mctsnode";
+import {Config} from "./core/config";
 
 export class MuZeroConnectFourState implements Playerwise {
   private readonly _key: string
   private readonly _player: number
   private readonly _board: number[][]
-  private readonly _history: MuZeroAction[]
+  private readonly _history: Action[]
 
-  constructor (player: number, board: number[][], history: MuZeroAction[]) {
+  constructor (player: number, board: number[][], history: Action[]) {
     this._key = history.length > 0 ? history.map(a => a.id).join(':') : '*'
     this._player = player
     this._board = board
@@ -25,7 +26,7 @@ export class MuZeroConnectFourState implements Playerwise {
     return this._board
   }
 
-  get history (): MuZeroAction[] {
+  get history (): Action[] {
     return this._history
   }
 
@@ -34,20 +35,31 @@ export class MuZeroConnectFourState implements Playerwise {
   }
 }
 
-export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourState, MuZeroAction> {
-  config (): { actionSpaceSize: number, boardSize: number, supportSize: number } {
-    return {
-      actionSpaceSize: 7,
-      boardSize: 42,
-      supportSize: 10
-    }
+export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
+  config (): Config {
+    const actionSpace = 7
+    const boardSize = 42
+    const supportSize = 10
+    const conf = new Config(actionSpace, new ConnectFourNetModel().observationSize)
+    conf.maxMoves = actionSpace
+    conf.decayingParam = 0.997
+    conf.rootDirichletAlpha = 0.25
+    conf.simulations = 150
+    conf.batchSize = 100
+    conf.tdSteps = 7
+    conf.lrInit = 0.0001
+    conf.trainingSteps = 200
+    conf.replayBufferSize = 50
+    conf.numUnrollSteps = actionSpace
+    conf.lrDecayRate = 0.1
+    return conf
   }
 
   public reset (): MuZeroConnectFourState {
     return new MuZeroConnectFourState(1, [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], [])
   }
 
-  public step (state: MuZeroConnectFourState, action: MuZeroAction): MuZeroConnectFourState {
+  public step (state: MuZeroConnectFourState, action: Action): MuZeroConnectFourState {
     const boardCopy = state.board.map(r => [...r])
     const row = Math.floor(action.id / 7)
     const col = action.id % 7
@@ -55,12 +67,12 @@ export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourSta
     return new MuZeroConnectFourState(-state.player, boardCopy, state.history.concat([action]))
   }
 
-  public legalActions (state: MuZeroConnectFourState): MuZeroAction[] {
+  public legalActions (state: MuZeroConnectFourState): Action[] {
     const legal = []
     for (let col = 0; col < 7; col++) {
       for (let row = 5; row >= 0; row--) {
         if (state.board[row][col] === 0) {
-          legal.push(new MuZeroAction(row * 7 + col))
+          legal.push({ id: row * 7 + col })
           break
         }
       }
@@ -109,7 +121,7 @@ export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourSta
     return MuZeroConnectFour.haveWinner(state) !== 0 || this.legalActions(state).length === 0
   }
 
-  public expertAction (state: MuZeroConnectFourState): MuZeroAction {
+  public expertAction (state: MuZeroConnectFourState): Action {
     const paths = MuZeroConnectFour.winningPaths()
     const actions = this.legalActions(state)
     const scoreTable = []
@@ -132,7 +144,7 @@ export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourSta
       scoreTable.push({ action, score: tf.tensor1d(scores).max().bufferSync().get(0) })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : new MuZeroAction(-1)
+    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
   }
 
   public toString (state: MuZeroConnectFourState): string {
@@ -155,7 +167,7 @@ export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourSta
 
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroConnectFourState(player, board, history.map((a: number) => new MuZeroAction(a)))
+    return new MuZeroConnectFourState(player, board, history.map((a: number) => { return { id: a }}))
   }
 
   public serialize (state: MuZeroConnectFourState): string {
@@ -163,7 +175,7 @@ export class MuZeroConnectFour implements MuZeroEnvironment<MuZeroConnectFourSta
   }
 }
 
-export class ConnectFourNetModel implements MuZeroModel<MuZeroConnectFourState> {
+export class ConnectFourNetModel implements Model<MuZeroConnectFourState> {
   get observationSize (): number {
     return 42 * 3
   }

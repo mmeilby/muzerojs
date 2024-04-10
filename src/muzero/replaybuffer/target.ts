@@ -1,4 +1,4 @@
-export class MuZeroTarget {
+export class Target {
   constructor (
     // The value target is the discounted root value of the search tree N steps
     // into the future, plus the discounted sum of all rewards until then

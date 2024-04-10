@@ -1,14 +1,14 @@
 import { type Playerwise } from '../../selfplay/entities'
-import { type MuZeroAction } from '../core/action'
 import { MuZeroNimUtil } from './nimutil'
+import {Action} from "../../selfplay/mctsnode";
 
 export class MuZeroNimState implements Playerwise {
   private readonly _key: string
   private readonly _player: number
   private readonly _board: number[]
-  private readonly _history: MuZeroAction[]
+  private readonly _history: Action[]
 
-  constructor (player: number, board: number[], history: MuZeroAction[]) {
+  constructor (player: number, board: number[], history: Action[]) {
     this._key = history.length > 0 ? history.map(a => a.id).join(':') : '*'
     this._player = player
     this._board = board
@@ -23,7 +23,7 @@ export class MuZeroNimState implements Playerwise {
     return this._board
   }
 
-  get history (): MuZeroAction[] {
+  get history (): Action[] {
     return this._history
   }
 
