@@ -26,7 +26,7 @@ export class MockedNetwork<State extends Playerwise> implements Network {
     const tfValue = tf.tensor2d([[this.env.reward(state, state.player)]])
     const action = this.env.expertAction(state)
     const tfPolicy = this.policyTransform(action.id)
-    return new TensorNetworkOutput(tfValue, tf.zeros(tfValue.shape), tfPolicy, observation)
+    return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, observation)
   }
 
   public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {

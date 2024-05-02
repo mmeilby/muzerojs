@@ -13,14 +13,14 @@ export class UniformNetwork implements Network {
 
   public initialInference (observation: tf.Tensor): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
-    const tfPolicy = tf.fill([this.actionSpace], 1 / this.actionSpace)
-    return new TensorNetworkOutput(tf.zeros([1]), tf.zeros([1]), tfPolicy, observation)
+    const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
+    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, observation)
   }
 
   public recurrentInference (hiddenState: tf.Tensor, _: tf.Tensor): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
-    const tfPolicy = tf.fill([this.actionSpace], 1 / this.actionSpace)
-    return new TensorNetworkOutput(tf.zeros([1]), tf.zeros([1]), tfPolicy, hiddenState)
+    const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
+    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, hiddenState)
   }
 
   public trainInference (_: Batch[]): number[] {

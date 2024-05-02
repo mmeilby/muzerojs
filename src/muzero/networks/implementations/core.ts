@@ -59,7 +59,7 @@ export class CoreNet implements Network {
     const tfHiddenState = this.model.representation(observation)
     const tfPolicy = this.model.policy(tfHiddenState)
     const tfValue = this.model.value(tfHiddenState)
-    return new TensorNetworkOutput(tfValue, tf.zeros(tfValue.shape), tfPolicy, tfHiddenState)
+    return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, tfHiddenState)
   }
 
   /**
