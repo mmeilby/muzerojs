@@ -45,7 +45,7 @@ export class ResNet implements Model {
   /**
    * Creates a convolutional neural network (Convnet) for the MNIST data.
    *
-   * @returns {tf.LayersModel} An instance of tf.Model.
+   * @returns {tf.LayersModel} An instance of tf.LayersModel.
    */
   private createConvModel (): tf.LayersModel {
     // Create a sequential neural network model. tf.sequential provides an API
