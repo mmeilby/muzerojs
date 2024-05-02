@@ -2,22 +2,22 @@ import { type SharedStorage } from './sharedstorage'
 import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
 import * as tf from '@tensorflow/tfjs-node'
 
-import { type Actionwise, type Playerwise } from '../selfplay/entities'
+import { type Playerwise } from '../selfplay/entities'
 
 import debugFactory from 'debug'
 import { type Config } from '../games/core/config'
-import {MuZeroNet} from "../networks/network";
 
 const debug = debugFactory('muzero:training:debug')
 const info = debugFactory('muzero:training:info')
 
 export class Training<State extends Playerwise> {
   private trainingStep = 0
-  private losses: number[] = []
+  private readonly losses: number[] = []
 
   constructor (
     private readonly config: Config
-  ) {}
+  ) {
+  }
 
   public async trainNetwork (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     // Get a private copy of a new untrained network
@@ -31,10 +31,12 @@ export class Training<State extends Playerwise> {
       if (step % this.config.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
-      const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
-      const [loss, accuracy] = network.trainInference(batchSamples)
-      debug(`Mean loss: step #${step} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
-      this.losses.push(loss)
+      tf.tidy(() => {
+        const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps) // .filter(batch => batch.actions.length > 0)
+        const [loss, accuracy] = network.trainInference(batchSamples)
+        debug(`Mean loss: step #${step} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
+        this.losses.push(loss)
+      })
       this.trainingStep++
       if (tf.memory().numTensors - useBaseline > 0) {
         console.warn(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
@@ -51,21 +53,24 @@ export class Training<State extends Playerwise> {
 
   public async trainSingleInteration (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     const network = storage.latestNetwork()
-    const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.actions.length > 0)
-//     debug(JSON.stringify(batchSamples))
-    const [loss, accuracy] = network.trainInference(batchSamples)
-    debug(`Mean loss: step #${this.trainingStep+1} ${loss.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
-    this.losses.push(loss)
+    tf.tidy(() => {
+      const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps).filter(batch => batch.tfActions.length > 0)
+      //     debug(JSON.stringify(batchSamples))
+      const [loss, accuracy] = network.trainInference(batchSamples)
+      debug(`Mean loss: step #${this.trainingStep + 1} ${loss.toFixed(3)}, accuracy: ${accuracy.toFixed(3)}`)
+      this.losses.push(loss)
+    })
     this.trainingStep++
     if (this.trainingStep % this.config.checkpointInterval === 0) {
       await storage.saveNetwork(this.trainingStep, network)
     }
-//    (network as MuZeroNet).dispose()
+    //    (network as MuZeroNet).dispose()
   }
 
   public statistics (): number {
-    const lossSum = this.losses.reduce((s, l) => s + l, 0)
-    return lossSum / this.losses.length
+    const mLoss = this.losses.slice(-100)
+    const mlossSum = mLoss.reduce((s, l) => s + l, 0)
+    return mlossSum / mLoss.length
   }
 
   /**

@@ -1,14 +1,19 @@
 import debugFactory from 'debug'
-import { Config } from '../games/core/config'
-import { Network } from '../networks/nnet'
-import { MuZeroNet } from '../networks/network'
-import { UniformNetwork } from '../networks/uniform'
+import { type Config } from '../games/core/config'
+import { type Network } from '../networks/nnet'
+import { UniformNetwork } from '../networks/implementations/uniform'
+
+import { EventEmitter } from 'events'
+import { CoreNet } from '../networks/implementations/core'
+import { ResNet } from '../networks/implementations/conv'
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
 export class SharedStorage {
   private readonly latestNetwork_: Network
   private readonly maxNetworks: number
+  private readonly updatedNetworkEvent: EventEmitter
+
   public networkCount: number
 
   /**
@@ -22,11 +27,13 @@ export class SharedStorage {
   ) {
     this.latestNetwork_ = this.initialize()
     this.maxNetworks = 2
+    this.updatedNetworkEvent = new EventEmitter()
     this.networkCount = -1
   }
 
   public initialize (): Network {
-    return new MuZeroNet(this.config.observationSize, this.config.actionSpace, this.config.lrInit)
+    const model = new ResNet(this.config.observationSize, this.config.actionSpace)
+    return new CoreNet(model, this.config.lrInit)
   }
 
   public uniformNetwork (): Network {
@@ -37,6 +44,21 @@ export class SharedStorage {
   public latestNetwork (): Network {
     debug(`Picked the latest network - training step ${this.networkCount}`)
     return this.networkCount >= 0 ? this.latestNetwork_ : this.uniformNetwork()
+  }
+
+  public async waitForUpdate (): Promise<Network> {
+    const promise = new Promise<Network>((resolve, _) => {
+      /*
+      setTimeout(() => {
+        this.updatedNetworkEvent.emit('update_event')
+        reject('timed out')
+      }, 10000)
+       */
+      this.updatedNetworkEvent.once('update_event', () => {
+        resolve(this.latestNetwork())
+      })
+    })
+    return await promise
   }
 
   public async loadNetwork (): Promise<void> {
@@ -54,5 +76,6 @@ export class SharedStorage {
     await network.save('file://data/'.concat(this.config.savedNetworkPath, '/'))
     network.copyWeights(this.latestNetwork_)
     this.networkCount = step
+    this.updatedNetworkEvent.emit('update_event')
   }
 }

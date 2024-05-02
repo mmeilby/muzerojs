@@ -1,18 +1,15 @@
-import { type NetworkOutput } from './networkoutput'
+import type * as tf from '@tensorflow/tfjs-node'
+import { type TensorNetworkOutput } from './networkoutput'
 import { type Batch } from '../replaybuffer/batch'
-import {Action} from "../selfplay/mctsnode";
-
-export interface Observation {
-}
-
-export interface HiddenState {
-}
+import { type Model } from './model'
 
 export interface Network {
-  initialInference (obs: Observation): NetworkOutput
-  recurrentInference (hiddenState: HiddenState, action: Action): NetworkOutput
-  trainInference (samples: Array<Batch>): number[]
-  save (path: string): Promise<void>
-  load (path: string): Promise<void>
-  copyWeights (network: Network): void
+  getModel: () => Model
+  initialInference: (observation: tf.Tensor) => TensorNetworkOutput
+  recurrentInference: (hiddenState: tf.Tensor, action: tf.Tensor) => TensorNetworkOutput
+  trainInference: (samples: Batch[]) => number[]
+  save: (path: string) => Promise<void>
+  load: (path: string) => Promise<void>
+  copyWeights: (network: Network) => void
+  dispose: () => void
 }

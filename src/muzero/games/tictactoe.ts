@@ -1,10 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node'
-import { Environment } from './core/environment'
-import { Playerwise } from '../selfplay/entities'
-import { Model } from './core/model'
-import {Action} from "../selfplay/mctsnode";
-import {Config} from "./core/config";
-import {ConnectFourNetModel} from "./connectfour";
+import { type Environment } from './core/environment'
+import { type Playerwise } from '../selfplay/entities'
+import { type Action } from '../selfplay/mctsnode'
+import { Config } from './core/config'
 
 export class MuZeroTicTacToeState implements Playerwise {
   private readonly _key: string
@@ -31,6 +29,17 @@ export class MuZeroTicTacToeState implements Playerwise {
     return this._history
   }
 
+  get observationSize (): number[] {
+    return [3, 3, 3]
+  }
+
+  get observation (): tf.Tensor {
+    const boardPlayer1: number[][] = this._board.map(row => row.map(cell => cell === 1 ? 1 : 0))
+    const boardPlayer2: number[][] = this._board.map(row => row.map(cell => cell === -1 ? 1 : 0))
+    const boardToPlay: number[][] = this._board.map(row => row.map(() => this._player))
+    return tf.tensor4d([[boardPlayer1, boardPlayer2, boardToPlay]])
+  }
+
   public toString (): string {
     return this._key
   }
@@ -39,9 +48,7 @@ export class MuZeroTicTacToeState implements Playerwise {
 export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
   config (): Config {
     const actionSpace = 9
-    const boardSize = 9
-    const supportSize = 10
-    const conf = new Config(actionSpace, new TicTacToeNetModel().observationSize)
+    const conf = new Config(actionSpace, new MuZeroTicTacToeState(actionSpace, [], []).observationSize)
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -129,7 +136,10 @@ export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
         const score = board.mul(path).sum().bufferSync().get(0)
         scores.push(score * state.player)
       }
-      scoreTable.push({ action, score: tf.tensor1d(scores).max().bufferSync().get(0) })
+      scoreTable.push({
+        action,
+        score: tf.tensor1d(scores).max().bufferSync().get(0)
+      })
     }
     scoreTable.sort((a, b) => b.score - a.score)
     return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
@@ -155,23 +165,12 @@ export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
 
   public deserialize (stream: string): MuZeroTicTacToeState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroTicTacToeState(player, board, history.map((a: number) => { return { id: a }}))
+    return new MuZeroTicTacToeState(player, board, history.map((a: number) => {
+      return { id: a }
+    }))
   }
 
   public serialize (state: MuZeroTicTacToeState): string {
     return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
-  }
-}
-
-export class TicTacToeNetModel implements Model<MuZeroTicTacToeState> {
-  get observationSize (): number {
-    return 27
-  }
-
-  public observation (state: MuZeroTicTacToeState): number[][] {
-    const boardPlayer1: number[][] = state.board.map(row => row.map(cell => cell === 1 ? 1 : 0))
-    const boardPlayer2: number[][] = state.board.map(row => row.map(cell => cell === -1 ? 1 : 0))
-    const boardToPlay: number[][] = state.board.map(row => row.map(() => state.player))
-    return boardPlayer1.concat(boardPlayer2).concat(boardToPlay)
   }
 }

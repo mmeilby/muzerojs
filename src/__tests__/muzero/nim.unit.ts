@@ -1,13 +1,10 @@
-import { describe, test, expect } from '@jest/globals'
+import { describe, expect, test } from '@jest/globals'
 import { MuZeroNim } from '../../muzero/games/nim/nim'
-import { NimNetModel } from '../../muzero/games/nim/nimmodel'
-import { type NetworkObservation } from '../../muzero/networks/network'
 import { MuZeroNimUtil } from '../../muzero/games/nim/nimutil'
-import {Action} from "../../muzero/selfplay/mctsnode";
+import { type Action } from '../../muzero/selfplay/mctsnode'
 
 describe('Nim Unit Test:', () => {
   const factory = new MuZeroNim()
-  const model = new NimNetModel()
   const support = new MuZeroNimUtil()
   test('Check the Nim Game', async () => {
     const state = factory.reset()
@@ -20,8 +17,7 @@ describe('Nim Unit Test:', () => {
     expect(factory.legalActions(state).map(a => support.actionToString(a))).toEqual(
       ['H1-1', 'H2-1', 'H2-2', 'H3-1', 'H3-2', 'H3-3', 'H4-1', 'H4-2', 'H4-3', 'H4-4', 'H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
-    const obs = model.observation(state) as NetworkObservation
-    expect(obs.observation.toString()).toEqual('1,0,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,1,1,0,1,1,1,1,1')
+    expect(state.observation.toString()).toEqual('1,0,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,1,1,0,1,1,1,1,1')
     const s1 = factory.step(state, support.actionFromString('H1-1'))
     expect(s1.board.toString()).toEqual('0,2,3,4,5')
     expect(factory.legalActions(s1).map(a => support.actionToString(a))).toEqual(
@@ -33,7 +29,7 @@ describe('Nim Unit Test:', () => {
       ['H2-1', 'H2-2', 'H4-1', 'H4-2', 'H4-3', 'H4-4', 'H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
     expect(support.actionToString(factory.expertAction(s2))).toEqual('H2-1')
-//    expect(factory.expertActionEnhanced(s2)).toEqual([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    //    expect(factory.expertActionEnhanced(s2)).toEqual([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     const s3 = factory.step(s2, support.actionFromString('H2-1'))
     expect(s3.board.toString()).toEqual('0,1,0,4,5')
     expect(factory.toString(s3)).toEqual('_|1|_|4|5')

@@ -1,17 +1,15 @@
-import { describe, test, expect } from '@jest/globals'
+import { describe, expect, test } from '@jest/globals'
 import { SharedStorage } from '../../muzero/training/sharedstorage'
 import { ReplayBuffer } from '../../muzero/replaybuffer/replaybuffer'
 import { SelfPlay } from '../../muzero/selfplay/selfplay'
 import { MuZeroNim } from '../../muzero/games/nim/nim'
-import { type MuZeroNimState } from '../../muzero/games/nim/nimstate'
-import { NimNetModel } from '../../muzero/games/nim/nimmodel'
-import { MockedNetwork } from '../../muzero/networks/mnetwork'
+import { MuZeroNimState } from '../../muzero/games/nim/nimstate'
+import { MockedNetwork } from '../../muzero/networks/implementations/mocked'
 import * as tf from '@tensorflow/tfjs-node'
 import { MuZeroNimUtil } from '../../muzero/games/nim/nimutil'
 
 describe('Muzero Self Play Unit Test:', () => {
   const factory = new MuZeroNim()
-  const model = new NimNetModel()
   const support = new MuZeroNimUtil()
   const conf = factory.config()
   test('Check stopGradient', () => {
@@ -53,10 +51,10 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check self play', async () => {
     const replayBuffer = new ReplayBuffer<MuZeroNimState>(conf)
     const sharedStorage = new SharedStorage(conf)
-    const network = new MockedNetwork<MuZeroNimState>(factory)
+    const network = new MockedNetwork<MuZeroNimState>(factory, MuZeroNimState.state)
     await sharedStorage.saveNetwork(1, network)
     conf.selfPlaySteps = 2
-    const selfPlay = new SelfPlay(conf, factory, model)
+    const selfPlay = new SelfPlay(conf, factory)
     await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     expect(replayBuffer.numPlayedGames).toEqual(2)
   })

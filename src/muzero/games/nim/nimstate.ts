@@ -1,6 +1,8 @@
+import * as tf from '@tensorflow/tfjs-node'
 import { type Playerwise } from '../../selfplay/entities'
 import { MuZeroNimUtil } from './nimutil'
-import {Action} from "../../selfplay/mctsnode";
+import { type Action } from '../../selfplay/mctsnode'
+import { config } from './nimconfig'
 
 export class MuZeroNimState implements Playerwise {
   private readonly _key: string
@@ -25,6 +27,27 @@ export class MuZeroNimState implements Playerwise {
 
   get history (): Action[] {
     return this._history
+  }
+
+  get observationSize (): number[] {
+    return [config.heaps, config.heapSize, 1]
+  }
+
+  get observation (): tf.Tensor {
+    const board: number[][][] = []
+    for (let i = 0; i < config.heaps; i++) {
+      const pins: number[][] = []
+      for (let j = 0; j < config.heapSize; j++) {
+        pins[j] = j < this._board[i] ? [1] : [0]
+      }
+      board.push(pins)
+    }
+    return tf.tensor3d(board)
+  }
+
+  public static state (observation: tf.Tensor): MuZeroNimState {
+    const pins: tf.Tensor = observation.sum(1).reshape([config.heaps])
+    return new MuZeroNimState(1, pins.arraySync() as number[], [])
   }
 
   public toString (): string {

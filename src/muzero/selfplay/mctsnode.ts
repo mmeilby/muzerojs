@@ -1,4 +1,5 @@
-import {HiddenState} from "../networks/nnet";
+import type * as tf from '@tensorflow/tfjs-node'
+import { type Playerwise } from './entities'
 
 /**
  *
@@ -6,160 +7,157 @@ import {HiddenState} from "../networks/nnet";
  * @internal
  * @param State An object representing the state of the game.
  */
-export class Node<State> {
-    // The number of times this node has been visited
-    private visits_: number
-    // The back propagated value sum of the node
-    private valueSum_: number
-    // The predicted reward received by moving to this node
-    private reward_: number
-    // The predicted prior probability of choosing the action that leads to this node
-    private prior_: number
-    // The hidden state this node corresponds to
-    private hiddenState_?: HiddenState
-    private readonly possibleActionsLeftToExpand_: Action[]
-    private readonly children_: Array<Node<State>> = []
-    constructor (
-        private readonly state_: State,
-        // Possible actions allowed for this state
-        possibleActions: Action[],
-        // Identification of player to make a move for this state
-        private readonly player_: number,
-        // Action that caused this state - if node is root no action is defined
-        private readonly action_?: Action
-    ) {
-        this.possibleActionsLeftToExpand_ = possibleActions
-        this.reward_ = 0
-        this.visits_ = 0
-        this.prior_ = 0
-        this.valueSum_ = 0
-    }
+export class Node<State extends Playerwise> {
+  // The number of times this node has been visited
+  private visits_: number
+  // The back propagated value sum of the node
+  private valueSum_: number
+  // The predicted reward received by moving to this node
+  private reward_: number
+  // The predicted prior probability of choosing the action that leads to this node
+  private prior_: number
+  // The hidden state this node corresponds to
+  private hiddenState_: tf.Tensor | undefined
+  private readonly possibleActionsLeftToExpand_: Action[]
+  private readonly children_: Array<Node<State>> = []
 
-    get possibleActionsLeftToExpand (): Action[] {
-        return this.possibleActionsLeftToExpand_
-    }
+  constructor (
+    private readonly state_: State,
+    // Possible actions allowed for this state
+    possibleActions: Action[],
+    // Action that caused this state - if node is root no action is defined
+    private readonly action_?: Action | undefined
+  ) {
+    this.possibleActionsLeftToExpand_ = possibleActions
+    this.reward_ = 0
+    this.visits_ = 0
+    this.prior_ = 0
+    this.valueSum_ = 0
+  }
 
-    /**
-     * Identification of player to make a move for this state
-     */
-    get player (): number {
-        return this.player_
-    }
+  get possibleActionsLeftToExpand (): Action[] {
+    return this.possibleActionsLeftToExpand_
+  }
 
-    /**
-     * Action that caused this state - if node is root not action is defined
-     */
-    get action (): Action | undefined {
-        return this.action_
-    }
+  /**
+   * Identification of player to make a move for this state
+   */
+  get player (): number {
+    return this.state_.player
+  }
 
-    get children (): Array<Node<State>> {
-        return this.children_
-    }
+  /**
+   * Action that caused this state - if node is root not action is defined
+   */
+  get action (): Action | undefined {
+    return this.action_
+  }
 
-    /**
-     * The predicted reward received by moving to this node
-     */
-    get reward (): number {
-        return this.reward_
-    }
+  get children (): Array<Node<State>> {
+    return this.children_
+  }
 
-    set reward (value: number) {
-        this.reward_ = value
-    }
+  /**
+   * The predicted reward received by moving to this node
+   */
+  get reward (): number {
+    return this.reward_
+  }
 
-    /**
-     * The number of times this node has been visited (updated on each back propagation)
-     */
-    get visits (): number {
-        return this.visits_
-    }
+  set reward (value: number) {
+    this.reward_ = value
+  }
 
-    set visits (value: number) {
-        this.visits_ = value
-    }
+  /**
+   * The number of times this node has been visited (updated on each back propagation)
+   */
+  get visits (): number {
+    return this.visits_
+  }
 
-    /**
-     * The predicted prior probability of choosing the action that leads to this node
-     */
-    get prior (): number {
-        return this.prior_
-    }
+  set visits (value: number) {
+    this.visits_ = value
+  }
 
-    set prior (value: number) {
-        this.prior_ = value
-    }
+  /**
+   * The predicted prior probability of choosing the action that leads to this node
+   */
+  get prior (): number {
+    return this.prior_
+  }
 
-    /**
-     * The back propagated value sum of the node
-     */
-    get valueSum (): number {
-        return this.valueSum_
-    }
+  set prior (value: number) {
+    this.prior_ = value
+  }
 
-    set valueSum (value: number) {
-        this.valueSum_ = value
-    }
+  /**
+   * The back propagated value sum of the node
+   */
+  get valueSum (): number {
+    return this.valueSum_
+  }
 
-    /**
-     * The hidden state this node corresponds to
-     */
-    get hiddenState (): HiddenState {
-        if (this.hiddenState_ != null) {
-            return this.hiddenState_
+  set valueSum (value: number) {
+    this.valueSum_ = value
+  }
+
+  /**
+   * The hidden state this node corresponds to
+   */
+  get hiddenState (): tf.Tensor {
+    if (this.hiddenState_ !== undefined) {
+      return this.hiddenState_
+    }
+    throw new Error('Hidden state is undefined for MCTSState')
+  }
+
+  set hiddenState (value: tf.Tensor) {
+    this.hiddenState_ = value
+  }
+
+  get state (): State {
+    return this.state_
+  }
+
+  /**
+   * The back propagated value averaged by visit of the node
+   */
+  value (): number {
+    return this.visits_ > 0 ? this.valueSum_ / this.visits_ : 0
+  }
+
+  samePlayer (player: number): boolean {
+    return this.state_.player === player
+  }
+
+  policy (actionSpace: number): number[] {
+    const totalVisits = this.children.reduce((sum, child) => sum + child.visits, 0)
+    const policy: number[] = new Array(actionSpace).fill(0)
+    if (totalVisits !== 0) {
+      this.children.forEach(child => {
+        if (child.action !== undefined) {
+          policy[child.action.id] = child.visits / totalVisits
         }
-        throw new Error('Hidden state is undefined for MCTSState')
+      })
     }
+    return policy
+  }
 
-    set hiddenState (value: HiddenState) {
-        this.hiddenState_ = value
-    }
+  addChild (
+    state: State,
+    possibleActions: Action[],
+    action: Action
+  ): Node<State> {
+    const node = new Node(state, possibleActions, action)
+    this.children_.push(node)
+    return node
+  }
 
-    get state (): State {
-        return this.state_
-    }
-
-    /**
-     * The back propagated value averaged by visit of the node
-     */
-    value (): number {
-        return this.visits_ > 0 ? this.valueSum_ / this.visits_ : 0
-    }
-
-    samePlayer (player: number): boolean {
-        return this.player_ === player
-    }
-
-    policy (actionSpace: number): number[] {
-        const totalVisits = this.children.reduce((sum, child) => sum + child.visits, 0)
-        const policy: number[] = new Array(actionSpace).fill(0)
-        if (totalVisits !== 0) {
-            this.children.forEach(child => {
-                if (child.action !== undefined) {
-                    policy[child.action.id] = child.visits / totalVisits
-                }
-            })
-        }
-        return policy
-    }
-
-    addChild (
-        state: State,
-        possibleActions: Action[],
-        action: Action,
-        // Identification of player to make a move for this state
-        player: number
-    ): Node<State> {
-        const node = new Node(state, possibleActions, player, action)
-        this.children_.push(node)
-        return node
-    }
-
-    isExpanded (): boolean {
-        return this.possibleActionsLeftToExpand_.length === 0
-    }
+  isExpanded (): boolean {
+    return this.possibleActionsLeftToExpand_.length === 0
+  }
 }
 
 export interface Action {
-    id: number
+  id: number
 }

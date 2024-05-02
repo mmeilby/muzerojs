@@ -1,4 +1,4 @@
-import { type HiddenState } from '../networks/nnet'
+import type * as tf from '@tensorflow/tfjs-node'
 
 /**
  * `Playerwise` is an interface made to extend generic `State` objects used in
@@ -8,6 +8,8 @@ import { type HiddenState } from '../networks/nnet'
  */
 export interface Playerwise {
   player: number
+  observationSize: number[]
+  observation: tf.Tensor
   toString: () => string
 }
 

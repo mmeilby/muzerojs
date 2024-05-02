@@ -5,7 +5,7 @@ export class Config {
   // Number of all possible actions
   private readonly _actionSpace: number
   // Size of the board representation used as input for the representation network - h(obs)
-  private readonly _observationSize: number
+  private readonly _observationSize: number[]
 
   // ---------------------------------
   // Replay buffer configuration
@@ -80,12 +80,12 @@ export class Config {
   private _lrDecaySteps?: number
 
   /**
-     * Construct the configuration object
-     * @param actionSpace Number of all possible actions
-     * @param observationSize Size of the board representation used as input
-     * for the representation network - h(obs)
-     */
-  constructor (actionSpace: number, observationSize: number) {
+   * Construct the configuration object
+   * @param actionSpace Number of all possible actions
+   * @param observationSize Size of the board representation used as input
+   * for the representation network - h(obs)
+   */
+  constructor (actionSpace: number, observationSize: number[]) {
     this._actionSpace = actionSpace
     this._observationSize = observationSize
   }
@@ -190,104 +190,128 @@ export class Config {
     return this._actionSpace
   }
 
-  get observationSize (): number {
+  get observationSize (): number[] {
     return this._observationSize
   }
 
   // ----------- Setters ------------
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set replayBufferSize (value: number) {
     this._replayBufferSize = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set batchSize (value: number) {
     this._batchSize = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set tdSteps (value: number) {
     this._tdSteps = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set numUnrollSteps (value: number) {
     this._numUnrollSteps = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set stackedObservations (value: number) {
     this._stackedObservations = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set prioritizedReplay (value: boolean) {
     this._prioritizedReplay = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set priorityAlpha (value: number) {
     this._priorityAlpha = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set selfPlaySteps (value: number) {
     this._selfPlaySteps = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set simulations (value: number) {
     this._simulations = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set maxMoves (value: number) {
     this._maxMoves = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set discount (value: number) {
     this._discount = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set decayingParam (value: number) {
     this._decayingParam = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set rootDirichletAlpha (value: number) {
     this._rootDirichletAlpha = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set rootExplorationFraction (value: number) {
     this._rootExplorationFraction = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set pbCbase (value: number) {
     this._pbCbase = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set pbCinit (value: number) {
     this._pbCinit = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set trainingSteps (value: number) {
     this._trainingSteps = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set checkpointInterval (value: number) {
     this._checkpointInterval = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set savedNetworkPath (value: string) {
     this._savedNetworkPath = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set weightDecay (value: number) {
     this._weightDecay = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set momentum (value: number) {
     this._momentum = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set lrInit (value: number) {
     this._lrInit = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set lrDecayRate (value: number) {
     this._lrDecayRate = value
   }
 
+  // eslint-disable-next-line @typescript-eslint/adjacent-overload-signatures
   set lrDecaySteps (value: number) {
     this._lrDecaySteps = value
   }

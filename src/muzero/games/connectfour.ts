@@ -1,9 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node'
-import { Environment } from './core/environment'
-import { Playerwise } from '../selfplay/entities'
-import { Model } from './core/model'
-import {Action} from "../selfplay/mctsnode";
-import {Config} from "./core/config";
+import { type Environment } from './core/environment'
+import { type Playerwise } from '../selfplay/entities'
+import { type Action } from '../selfplay/mctsnode'
+import { Config } from './core/config'
 
 export class MuZeroConnectFourState implements Playerwise {
   private readonly _key: string
@@ -30,6 +29,17 @@ export class MuZeroConnectFourState implements Playerwise {
     return this._history
   }
 
+  get observationSize (): number[] {
+    return [3, 6, 7]
+  }
+
+  get observation (): tf.Tensor {
+    const boardPlayer1: number[][] = this._board.map(row => row.map(cell => cell === 1 ? 1 : 0))
+    const boardPlayer2: number[][] = this._board.map(row => row.map(cell => cell === -1 ? 1 : 0))
+    const boardToPlay: number[][] = this._board.map(row => row.map(() => this._player))
+    return tf.tensor4d([[boardPlayer1, boardPlayer2, boardToPlay]])
+  }
+
   public toString (): string {
     return this._key
   }
@@ -38,9 +48,7 @@ export class MuZeroConnectFourState implements Playerwise {
 export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
   config (): Config {
     const actionSpace = 7
-    const boardSize = 42
-    const supportSize = 10
-    const conf = new Config(actionSpace, new ConnectFourNetModel().observationSize)
+    const conf = new Config(actionSpace, new MuZeroConnectFourState(actionSpace, [], []).observationSize)
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -141,7 +149,10 @@ export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
           }
         }
       }
-      scoreTable.push({ action, score: tf.tensor1d(scores).max().bufferSync().get(0) })
+      scoreTable.push({
+        action,
+        score: tf.tensor1d(scores).max().bufferSync().get(0)
+      })
     }
     scoreTable.sort((a, b) => b.score - a.score)
     return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
@@ -167,23 +178,12 @@ export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
 
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroConnectFourState(player, board, history.map((a: number) => { return { id: a }}))
+    return new MuZeroConnectFourState(player, board, history.map((a: number) => {
+      return { id: a }
+    }))
   }
 
   public serialize (state: MuZeroConnectFourState): string {
     return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
-  }
-}
-
-export class ConnectFourNetModel implements Model<MuZeroConnectFourState> {
-  get observationSize (): number {
-    return 42 * 3
-  }
-
-  public observation (state: MuZeroConnectFourState): number[][] {
-    const boardPlayer1: number[][] = state.board.map(row => row.map(cell => cell === 1 ? 1 : 0))
-    const boardPlayer2: number[][] = state.board.map(row => row.map(cell => cell === -1 ? 1 : 0))
-    const boardToPlay: number[][] = state.board.map(row => row.map(() => state.player))
-    return boardPlayer1.concat(boardPlayer2).concat(boardToPlay)
   }
 }

@@ -1,9 +1,9 @@
 import { type Environment } from '../core/environment'
 // import debugFactory from 'debug'
-import {CartpoleNetModel, MuZeroCartpoleState} from './cartpolestate'
+import { MuZeroCartpoleState } from './cartpolestate'
 import * as tf from '@tensorflow/tfjs-node'
-import {Action} from "../../selfplay/mctsnode";
-import {Config} from "../core/config";
+import { type Action } from '../../selfplay/mctsnode'
+import { Config } from '../core/config'
 
 // const debug = debugFactory('muzero:cartpole:module')
 
@@ -14,7 +14,7 @@ import {Config} from "../core/config";
  * https://en.wikipedia.org/wiki/Nim
  */
 export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
-  private actionSpace = 2
+  private readonly actionSpace = 2
 
   /**
    * config
@@ -22,7 +22,13 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
    *  boardSize number of board positions for this game
    */
   config (): Config {
-    const conf = new Config(this.actionSpace, new CartpoleNetModel().observationSize)
+    const conf = new Config(this.actionSpace, new MuZeroCartpoleState({
+      x: 0,
+      xDot: 0,
+      theta: 0,
+      thetaDot: 0,
+      reward: 0
+    }, []).observationSize)
     conf.maxMoves = 500
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -52,7 +58,7 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
     return tf.tensor2d([[state.dataset.x, state.dataset.xDot, state.dataset.theta, state.dataset.thetaDot]])
   }
 
-  public legalActions (state: MuZeroCartpoleState): Action[] {
+  public legalActions (_: MuZeroCartpoleState): Action[] {
     return [{ id: 0 }, { id: 1 }]
   }
 
@@ -63,9 +69,9 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
    *    0 - for no current outcome
    *    -1 - for a lost situation
    * @param state
-   * @param player
+   * @param _
    */
-  public reward (state: MuZeroCartpoleState, player: number): number {
+  public reward (state: MuZeroCartpoleState, _: number): number {
     return state.dataset.reward
   }
 
@@ -73,11 +79,11 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
     return state.isDone(state.dataset)
   }
 
-  public expertAction (state: MuZeroCartpoleState): Action {
+  public expertAction (_: MuZeroCartpoleState): Action {
     return { id: -1 }
   }
 
-  public expertActionPolicy (state: MuZeroCartpoleState): number[] {
+  public expertActionPolicy (_: MuZeroCartpoleState): number[] {
     return new Array<number>(this.actionSpace).fill(0)
   }
 
@@ -87,7 +93,9 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
 
   public deserialize (stream: string): MuZeroCartpoleState {
     const [dataset, history] = JSON.parse(stream)
-    return new MuZeroCartpoleState(dataset, history.map((a: number) => { return { id: a }}))
+    return new MuZeroCartpoleState(dataset, history.map((a: number) => {
+      return { id: a }
+    }))
   }
 
   public serialize (state: MuZeroCartpoleState): string {

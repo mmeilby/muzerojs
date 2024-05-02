@@ -1,9 +1,7 @@
 import { type Playerwise } from '../../selfplay/entities'
 import { CartPole, type CartPoleDataSet } from './cartpole'
-import type { Model } from '../core/model'
-import type { Observation } from '../../networks/nnet'
-import { NetworkObservation } from '../../networks/network'
-import {Action} from "../../selfplay/mctsnode";
+import { type Action } from '../../selfplay/mctsnode'
+import * as tf from '@tensorflow/tfjs-node'
 
 export class MuZeroCartpoleState extends CartPole implements Playerwise {
   private readonly _key: string
@@ -31,15 +29,15 @@ export class MuZeroCartpoleState extends CartPole implements Playerwise {
     return this._history
   }
 
+  get observationSize (): number[] {
+    return [4]
+  }
+
+  get observation (): tf.Tensor {
+    return tf.tensor2d([[this._dataset.x, this._dataset.xDot, this._dataset.theta, this._dataset.thetaDot]])
+  }
+
   public toString (): string {
     return `${this._key} | ${this._history.length > 0 ? this._history.map(a => a.id > 0 ? 'right' : 'left').join(':') : '*'} | ${super.toString(this._dataset)}`
-  }
-}
-
-export class CartpoleNetModel implements Model<MuZeroCartpoleState> {
-  public readonly observationSize = 4
-
-  public observation (state: MuZeroCartpoleState): Observation {
-    return new NetworkObservation([state.dataset.x, state.dataset.xDot, state.dataset.theta, state.dataset.thetaDot])
   }
 }

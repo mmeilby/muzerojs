@@ -3,9 +3,8 @@ import { MuZeroNimState } from './nimstate'
 import { config, util } from './nimconfig'
 import debugFactory from 'debug'
 import { MuZeroNimUtil } from './nimutil'
-import {Action} from "../../selfplay/mctsnode";
-import {Config} from "../core/config";
-import {NimNetModel} from "./nimmodel";
+import { type Action } from '../../selfplay/mctsnode'
+import { Config } from '../core/config'
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -25,8 +24,7 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
    *  boardSize number of board positions for this game
    */
   config (): Config {
-    const boardSize = config.heaps
-    const conf = new Config(this.actionSpace, new NimNetModel().observationSize)
+    const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationSize)
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
     conf.simulations = 150
@@ -116,7 +114,9 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
   public expertActionPolicy (state: MuZeroNimState): number[] {
     const scoreTable = this.rankMoves(state)
     const policy: number[] = new Array<number>(this.actionSpace).fill(0)
-    scoreTable.forEach(s => { policy[s.action.id] = s.score })
+    scoreTable.forEach(s => {
+      policy[s.action.id] = s.score
+    })
     if (policy.every(p => p <= 0)) {
       const sum = policy.reduce((s, p) => s - p)
       return policy.map(p => p < 0 ? 1 / sum : 0)
@@ -190,7 +190,9 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
 
   public deserialize (stream: string): MuZeroNimState {
     const [player, board, history] = JSON.parse(stream)
-    return new MuZeroNimState(player, board, history.map((a: number) => { return { id: a }}))
+    return new MuZeroNimState(player, board, history.map((a: number) => {
+      return { id: a }
+    }))
   }
 
   public serialize (state: MuZeroNimState): string {
