@@ -32,7 +32,7 @@ export class Training<State extends Playerwise> {
         await storage.saveNetwork(step, network)
       }
       tf.tidy(() => {
-        const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps) // .filter(batch => batch.actions.length > 0)
+        const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps)
         const [loss, accuracy] = network.trainInference(batchSamples)
         debug(`Mean loss: step #${step} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
         this.losses.push(loss)
@@ -51,6 +51,7 @@ export class Training<State extends Playerwise> {
     await storage.saveNetwork(this.config.trainingSteps, network)
   }
 
+  /*
   public async trainSingleInteration (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     const network = storage.latestNetwork()
     tf.tidy(() => {
@@ -66,7 +67,7 @@ export class Training<State extends Playerwise> {
     }
     //    (network as MuZeroNet).dispose()
   }
-
+*/
   public statistics (): number {
     const mLoss = this.losses.slice(-100)
     const mlossSum = mLoss.reduce((s, l) => s + l, 0)
