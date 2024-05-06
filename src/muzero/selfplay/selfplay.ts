@@ -1,17 +1,17 @@
-import {type SharedStorage} from '../training/sharedstorage'
-import {type ReplayBuffer} from '../replaybuffer/replaybuffer'
-import {GameHistory} from './gamehistory'
-import {Normalizer, type Playerwise} from './entities'
-import {type Environment} from '../games/core/environment'
-import * as tf from '@tensorflow/tfjs-node'
+import { type SharedStorage } from '../training/sharedstorage'
+import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
+import { GameHistory } from './gamehistory'
+import { Normalizer, type Playerwise } from './entities'
+import { type Environment } from '../games/core/environment'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import debugFactory from 'debug'
-import {type Config} from '../games/core/config'
-import {type Network} from '../networks/nnet'
-import {type Action, Node} from './mctsnode'
-import {type TensorNetworkOutput} from '../networks/networkoutput'
+import { type Config } from '../games/core/config'
+import { type Network } from '../networks/nnet'
+import { type Action, Node } from './mctsnode'
+import { type TensorNetworkOutput } from '../networks/networkoutput'
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
-const {jStat} = require('jstat')
+const { jStat } = require('jstat')
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
 const debug = debugFactory('muzero:selfplay:debug')
@@ -20,7 +20,7 @@ const debug = debugFactory('muzero:selfplay:debug')
  * MuZeroSelfPlay - where the games are played
  */
 export class SelfPlay<State extends Playerwise> {
-  constructor(
+  constructor (
     private readonly config: Config,
     private readonly env: Environment<State>
   ) {
@@ -34,7 +34,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param storage
    * @param replayBuffer
    */
-  public async runSelfPlay(storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     info('Self play initiated')
     // Produce game plays as long as the training module runs
     while (storage.networkCount < this.config.trainingSteps) {
@@ -55,7 +55,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param storage
    * @param replayBuffer
    */
-  public async preloadReplayBuffer(storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
+  public async preloadReplayBuffer (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
     info(`Preload play initiated - executing ${this.config.replayBufferSize} games`)
     const network = storage.latestNetwork()
     for (let i = 0; i < this.config.replayBufferSize; i++) {
@@ -65,7 +65,7 @@ export class SelfPlay<State extends Playerwise> {
     info(`Preload play completed - collected ${replayBuffer.totalSamples} samples`)
   }
 
-  public testNetwork(network: Network): number[] {
+  public testNetwork (network: Network): number[] {
     const gameHistory = new GameHistory<State>(this.env)
     const certainty: number[] = []
     const misfit: number[] = []
@@ -86,7 +86,7 @@ export class SelfPlay<State extends Playerwise> {
       misfit.push((sumProp - sumPropR) / sumProp)
       const id = legalPolicy.indexOf(maxProp)
       log(`--- Test action: ${id}`)
-      gameHistory.apply({id})
+      gameHistory.apply({ id })
       //      })
     }
     log(`--- Test policy: ${gameHistory.state.toString()}`)
@@ -99,7 +99,7 @@ export class SelfPlay<State extends Playerwise> {
    * based on the latest version of the trained network
    * @param replayBuffer
    */
-  public buildTestHistory(replayBuffer: ReplayBuffer<State>): void {
+  public buildTestHistory (replayBuffer: ReplayBuffer<State>): void {
     this.unfoldGame(this.env.reset(), [], replayBuffer)
     info(`Build history completed - generated ${replayBuffer.numPlayedGames} games with ${replayBuffer.totalSamples} samples`)
   }
@@ -110,7 +110,7 @@ export class SelfPlay<State extends Playerwise> {
    * @returns The action index of the policy with the most probability randomly chosen
    * @protected
    */
-  public randomChoice(policy: number[]): number {
+  public randomChoice (policy: number[]): number {
     let i = 0
     policy.reduce((s, p) => {
       if (s - p >= 0) {
@@ -129,7 +129,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param network
    * @private
    */
-  private playGame(network: Network): GameHistory<State> {
+  private playGame (network: Network): GameHistory<State> {
     const gameHistory = new GameHistory<State>(this.env)
     // Play a game from start to end, register target data.old on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
@@ -150,7 +150,7 @@ export class SelfPlay<State extends Playerwise> {
     return gameHistory
   }
 
-  private unfoldGame(state: State, actionList: Action[], replayBuffer: ReplayBuffer<State>): void {
+  private unfoldGame (state: State, actionList: Action[], replayBuffer: ReplayBuffer<State>): void {
     const actions = this.env.legalActions(state)
     for (const action of actions) {
       const newState = this.env.step(state, action)
@@ -182,7 +182,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param network
    * @private
    */
-  private runMCTS(gameHistory: GameHistory<State>, network: Network): Node<State> {
+  private runMCTS (gameHistory: GameHistory<State>, network: Network): Node<State> {
     const minMaxStats = new Normalizer()
     const rootNode: Node<State> = new Node<State>(gameHistory.state, this.env.legalActions(gameHistory.state))
     tf.tidy(() => {
@@ -231,7 +231,7 @@ export class SelfPlay<State extends Playerwise> {
     return rootNode
   }
 
-  private selectAction(rootNode: Node<State>): Action {
+  private selectAction (rootNode: Node<State>): Action {
     const visitsTable = rootNode.children.map(child => {
       return {
         action: child.action,
@@ -257,7 +257,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param minMaxStats
    * @private
    */
-  private selectChild(node: Node<State>, minMaxStats: Normalizer): Node<State> {
+  private selectChild (node: Node<State>, minMaxStats: Normalizer): Node<State> {
     if (node.children.length === 0) {
       throw new Error(`SelectChild: No children available for selection. Parent state: ${node.state.toString()}`)
     }
@@ -295,7 +295,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param exploit
    * @private
    */
-  private ucbScore(parent: Node<State>, child: Node<State>, minMaxStats: Normalizer, exploit = false): number {
+  private ucbScore (parent: Node<State>, child: Node<State>, minMaxStats: Normalizer, exploit = false): number {
     if (exploit) {
       // For exploitation only we simply measure the number of visits
       // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
@@ -324,7 +324,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param networkOutput
    * @private
    */
-  private expandNode(node: Node<State>, networkOutput: TensorNetworkOutput): void {
+  private expandNode (node: Node<State>, networkOutput: TensorNetworkOutput): void {
     // save network predicted hidden state
     node.hiddenState = networkOutput.tfHiddenState
     // save network predicted reward - squeeze to remove batch dimension
@@ -348,7 +348,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param minMaxStats
    * @private
    */
-  private backPropagate(nodePath: Array<Node<State>>, nValue: number, player: number, minMaxStats: Normalizer): void {
+  private backPropagate (nodePath: Array<Node<State>>, nValue: number, player: number, minMaxStats: Normalizer): void {
     let value = nValue
     for (const node of nodePath) {
       if (!Number.isFinite(value)) {
@@ -368,7 +368,7 @@ export class SelfPlay<State extends Playerwise> {
   // At the start of each search, we add dirichlet noise to the prior of the root
   // to encourage the search to explore new actions.
   // For chess, root_dirichlet_alpha = 0.3
-  private addExplorationNoise(node: Node<State>): void {
+  private addExplorationNoise (node: Node<State>): void {
     // make dirichlet noise vector
     const noise: number[] = []
     let sumNoise = 0
@@ -387,7 +387,7 @@ export class SelfPlay<State extends Playerwise> {
     })
   }
 
-  private policyTransform(policy: number): tf.Tensor {
+  private policyTransform (policy: number): tf.Tensor {
     return tf.oneHot(tf.tensor1d([policy], 'int32'), this.config.actionSpace, 1, 0, 'float32')
   }
 

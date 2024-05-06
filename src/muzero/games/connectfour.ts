@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from './core/environment'
 import { type Playerwise } from '../selfplay/entities'
 import { type Action } from '../selfplay/mctsnode'

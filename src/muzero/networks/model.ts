@@ -1,4 +1,4 @@
-import type * as tf from '@tensorflow/tfjs-node'
+import type * as tf from '@tensorflow/tfjs-node-gpu'
 
 export interface Model {
   representation: (observation: tf.Tensor) => tf.Tensor

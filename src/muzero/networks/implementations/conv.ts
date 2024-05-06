@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Model } from '../model'
 
 import debugFactory from 'debug'
@@ -20,16 +20,92 @@ export class ResNet implements Model {
     protected readonly hxSize: number = 16
   ) {
     this.representationModel = this.makeResNet('hs', this.inputSize, this.hxSize)
-    this.representationModel.summary()
+    //    this.representationModel.summary()
     this.valueModel = this.makeValue('fv', [this.hxSize, 1, 1])
-    this.valueModel.summary()
+    //    this.valueModel.summary()
     this.policyModel = this.makePolicy('fp', [this.hxSize, 1, 1], this.actionSpaceN)
-    this.policyModel.summary()
+    //    this.policyModel.summary()
     this.rewardModel = this.makeValue('dr', [this.hxSize + this.actionSpaceN, 1, 1])
-    this.rewardModel.summary()
+    //    this.rewardModel.summary()
     this.dynamicsModel = this.makeResNet('ds', [this.hxSize + this.actionSpaceN, 1, 1], this.hxSize)
-    this.dynamicsModel.summary()
+    //    this.dynamicsModel.summary()
     debug('Constructed five residual networks (ResNet 18)')
+  }
+
+  public representation (observation: tf.Tensor): tf.Tensor {
+    return this.representationModel.predict(observation) as tf.Tensor
+  }
+
+  public value (state: tf.Tensor): tf.Tensor {
+    return this.valueModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
+  }
+
+  public policy (state: tf.Tensor): tf.Tensor {
+    return this.policyModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
+  }
+
+  public dynamics (conditionedState: tf.Tensor): tf.Tensor {
+    return this.dynamicsModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
+  }
+
+  public reward (conditionedState: tf.Tensor): tf.Tensor {
+    return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
+  }
+
+  public async save (path: string): Promise<void> {
+    await Promise.all([
+      this.representationModel.save(path + 'rp'),
+      this.valueModel.save(path + 'vm'),
+      this.policyModel.save(path + 'pm'),
+      this.dynamicsModel.save(path + 'dm'),
+      this.rewardModel.save(path + 'rm')
+    ])
+  }
+
+  public async load (path: string): Promise<void> {
+    const [
+      rp, vm, pm, dm, rm
+    ] = await Promise.all([
+      tf.loadLayersModel(path + 'rp/model.json'),
+      tf.loadLayersModel(path + 'vm/model.json'),
+      tf.loadLayersModel(path + 'pm/model.json'),
+      tf.loadLayersModel(path + 'dm/model.json'),
+      tf.loadLayersModel(path + 'rm/model.json')
+    ])
+    this.representationModel.setWeights(rp.getWeights())
+    this.valueModel.setWeights(vm.getWeights())
+    this.policyModel.setWeights(pm.getWeights())
+    this.dynamicsModel.setWeights(dm.getWeights())
+    this.rewardModel.setWeights(rm.getWeights())
+    rp.dispose()
+    vm.dispose()
+    pm.dispose()
+    dm.dispose()
+    rm.dispose()
+  }
+
+  public copyWeights (network: Model): void {
+    if (network instanceof ResNet) {
+      tf.tidy(() => {
+        network.representationModel.setWeights(this.representationModel.getWeights())
+        network.valueModel.setWeights(this.valueModel.getWeights())
+        network.policyModel.setWeights(this.policyModel.getWeights())
+        network.dynamicsModel.setWeights(this.dynamicsModel.getWeights())
+        network.rewardModel.setWeights(this.rewardModel.getWeights())
+      })
+    } else {
+      throw new Error(`ResNet: Cant copy weights to a different model: ${network.constructor.name}`)
+    }
+  }
+
+  public dispose (): number {
+    let disposed = 0
+    disposed += this.representationModel.dispose().numDisposedVariables
+    disposed += this.valueModel.dispose().numDisposedVariables
+    disposed += this.policyModel.dispose().numDisposedVariables
+    disposed += this.dynamicsModel.dispose().numDisposedVariables
+    disposed += this.rewardModel.dispose().numDisposedVariables
+    return disposed
   }
 
   // Batch normalisation and ReLU always go together, let's add them to the separate function
@@ -241,81 +317,5 @@ export class ResNet implements Model {
       inputs: input,
       outputs: dense
     })
-  }
-
-  public representation (observation: tf.Tensor): tf.Tensor {
-    return this.representationModel.predict(observation) as tf.Tensor
-  }
-
-  public value (state: tf.Tensor): tf.Tensor {
-    return this.valueModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
-  }
-
-  public policy (state: tf.Tensor): tf.Tensor {
-    return this.policyModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
-  }
-
-  public dynamics (conditionedState: tf.Tensor): tf.Tensor {
-    return this.dynamicsModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
-  }
-
-  public reward (conditionedState: tf.Tensor): tf.Tensor {
-    return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
-  }
-
-  public async save (path: string): Promise<void> {
-    await Promise.all([
-      this.representationModel.save(path + 'rp'),
-      this.valueModel.save(path + 'vm'),
-      this.policyModel.save(path + 'pm'),
-      this.dynamicsModel.save(path + 'dm'),
-      this.rewardModel.save(path + 'rm')
-    ])
-  }
-
-  public async load (path: string): Promise<void> {
-    const [
-      rp, vm, pm, dm, rm
-    ] = await Promise.all([
-      tf.loadLayersModel(path + 'rp/model.json'),
-      tf.loadLayersModel(path + 'vm/model.json'),
-      tf.loadLayersModel(path + 'pm/model.json'),
-      tf.loadLayersModel(path + 'dm/model.json'),
-      tf.loadLayersModel(path + 'rm/model.json')
-    ])
-    this.representationModel.setWeights(rp.getWeights())
-    this.valueModel.setWeights(vm.getWeights())
-    this.policyModel.setWeights(pm.getWeights())
-    this.dynamicsModel.setWeights(dm.getWeights())
-    this.rewardModel.setWeights(rm.getWeights())
-    rp.dispose()
-    vm.dispose()
-    pm.dispose()
-    dm.dispose()
-    rm.dispose()
-  }
-
-  public copyWeights (network: Model): void {
-    if (network instanceof ResNet) {
-      tf.tidy(() => {
-        network.representationModel.setWeights(this.representationModel.getWeights())
-        network.valueModel.setWeights(this.valueModel.getWeights())
-        network.policyModel.setWeights(this.policyModel.getWeights())
-        network.dynamicsModel.setWeights(this.dynamicsModel.getWeights())
-        network.rewardModel.setWeights(this.rewardModel.getWeights())
-      })
-    } else {
-      throw new Error(`ResNet: Cant copy weights to a different model: ${network.constructor.name}`)
-    }
-  }
-
-  public dispose (): number {
-    let disposed = 0
-    disposed += this.representationModel.dispose().numDisposedVariables
-    disposed += this.valueModel.dispose().numDisposedVariables
-    disposed += this.policyModel.dispose().numDisposedVariables
-    disposed += this.dynamicsModel.dispose().numDisposedVariables
-    disposed += this.rewardModel.dispose().numDisposedVariables
-    return disposed
   }
 }

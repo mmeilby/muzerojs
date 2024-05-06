@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import { type Batch } from '../../replaybuffer/batch'
 import { type Playerwise } from '../../selfplay/entities'

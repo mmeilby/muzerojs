@@ -1,4 +1,4 @@
-import type * as tf from '@tensorflow/tfjs-node'
+import type * as tf from '@tensorflow/tfjs-node-gpu'
 import { type TensorNetworkOutput } from './networkoutput'
 import { type Batch } from '../replaybuffer/batch'
 import { type Model } from './model'

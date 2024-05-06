@@ -1,7 +1,7 @@
 import { SharedStorage } from './muzero/training/sharedstorage'
 import { MuZeroNim } from './muzero/games/nim/nim'
 import debugFactory from 'debug'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Action } from './muzero/selfplay/mctsnode'
 
 const debug = debugFactory('muzero:demo:play ')

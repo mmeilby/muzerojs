@@ -1,6 +1,6 @@
 import { type SharedStorage } from './sharedstorage'
 import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
 import { type Playerwise } from '../selfplay/entities'
 

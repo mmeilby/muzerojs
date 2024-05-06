@@ -1,6 +1,6 @@
 import { type Batch } from '../../replaybuffer/batch'
 import { type Network } from '../nnet'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import type { Model } from '../model'
 

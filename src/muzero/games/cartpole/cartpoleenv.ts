@@ -1,7 +1,7 @@
 import { type Environment } from '../core/environment'
 // import debugFactory from 'debug'
 import { MuZeroCartpoleState } from './cartpolestate'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Action } from '../../selfplay/mctsnode'
 import { Config } from '../core/config'
 

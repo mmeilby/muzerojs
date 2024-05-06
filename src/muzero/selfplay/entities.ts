@@ -1,4 +1,4 @@
-import type * as tf from '@tensorflow/tfjs-node'
+import type * as tf from '@tensorflow/tfjs-node-gpu'
 
 /**
  * `Playerwise` is an interface made to extend generic `State` objects used in

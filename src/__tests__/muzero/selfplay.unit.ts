@@ -5,7 +5,7 @@ import { SelfPlay } from '../../muzero/selfplay/selfplay'
 import { MuZeroNim } from '../../muzero/games/nim/nim'
 import { MuZeroNimState } from '../../muzero/games/nim/nimstate'
 import { MockedNetwork } from '../../muzero/networks/implementations/mocked'
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { MuZeroNimUtil } from '../../muzero/games/nim/nimutil'
 
 describe('Muzero Self Play Unit Test:', () => {

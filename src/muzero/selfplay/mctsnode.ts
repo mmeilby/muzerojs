@@ -1,4 +1,4 @@
-import type * as tf from '@tensorflow/tfjs-node'
+import type * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Playerwise } from './entities'
 
 /**

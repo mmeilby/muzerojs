@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs-node'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Playerwise } from '../../selfplay/entities'
 import { MuZeroNimUtil } from './nimutil'
 import { type Action } from '../../selfplay/mctsnode'
