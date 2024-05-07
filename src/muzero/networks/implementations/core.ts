@@ -229,14 +229,15 @@ export class CoreNet implements Network {
     return predictions
   }
 
-  private prepareLabels (sample: Batch[]): Prediction[] {
+  private prepareLabels (sample: Batch[], predictions: Prediction[]): Prediction[] {
     const labels: Prediction[] = []
     for (let c = 0; c <= this.numUnrollSteps; c++) {
       labels.push({
         scale: 0,
         value: tf.concat(sample.map(batch => batch.targets[c].value)),
         reward: tf.concat(sample.map(batch => batch.targets[c].reward)),
-        policy: tf.concat(sample.map(batch => batch.targets[c].policy))
+        // TODO: Check dimension for unstacked policy: ConcatOp : Ranks of all input tensors should match: shape[0] = [1,15] vs. shape[7] = [15]
+        policy: tf.concat(sample.map((batch, i) => c < batch.actions.length ? batch.targets[c].policy : tf.unstack(predictions[c].policy)[i]))
       })
     }
     return labels
@@ -244,7 +245,7 @@ export class CoreNet implements Network {
 
   private calculateSampleLoss (sample: Batch[]): LossLog {
     const predictions: Prediction[] = this.preparePredictions(sample)
-    const labels: Prediction[] = this.prepareLabels(sample)
+    const labels: Prediction[] = this.prepareLabels(sample, predictions)
     const batchTotalLoss: LossLog = new LossLog()
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
