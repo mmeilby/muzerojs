@@ -1,16 +1,16 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import { TensorNetworkOutput } from '../networkoutput'
-import { type Batch } from '../../replaybuffer/batch'
-import { type Network } from '../nnet'
-import { type Target } from '../../replaybuffer/target'
-import { type Model } from '../model'
+import {TensorNetworkOutput} from '../networkoutput'
+import {type Batch} from '../../replaybuffer/batch'
+import {type Network} from '../nnet'
+import {type Target} from '../../replaybuffer/target'
+import {type Model} from '../model'
 
 import debugFactory from 'debug'
 
 const debug = debugFactory('muzero:network:core')
 
 class Prediction {
-  constructor (
+  constructor(
     public scale: number,
     public value: tf.Tensor,
     public reward: tf.Tensor,
@@ -25,7 +25,7 @@ class LossLog {
   public policy: number
   public total: tf.Tensor
 
-  constructor () {
+  constructor() {
     this.value = 0
     this.reward = 0
     this.policy = 0
@@ -37,7 +37,7 @@ class LossLog {
  * Core network wrapper for MuZero reinforced learning
  */
 export class CoreNet implements Network {
-  constructor (
+  constructor(
     private readonly model: Model,
     // Learning rate for SGD
     private readonly learningRate: number,
@@ -56,7 +56,7 @@ export class CoreNet implements Network {
    * ```
    * @param observation
    */
-  public initialInference (observation: tf.Tensor): TensorNetworkOutput {
+  public initialInference(observation: tf.Tensor): TensorNetworkOutput {
     const tfHiddenState = this.model.representation(observation)
     const tfPolicy = this.model.policy(tfHiddenState)
     const tfValue = this.model.value(tfHiddenState)
@@ -73,7 +73,7 @@ export class CoreNet implements Network {
    * @param hiddenState
    * @param action
    */
-  public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {
+  public recurrentInference(hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {
     const conditionedHiddenState = tf.concat([hiddenState, action], 1)
     const tfHiddenState = this.model.dynamics(conditionedHiddenState)
     const tfReward = this.model.reward(conditionedHiddenState)
@@ -83,7 +83,7 @@ export class CoreNet implements Network {
     return new TensorNetworkOutput(tfValue, tfReward, tfPolicy, tfHiddenState)
   }
 
-  public trainInference (samples: Batch[]): number[] {
+  public trainInference(samples: Batch[]): number[] {
     debug(`Training sample set of ${samples.length} games`)
     const optimizer = tf.train.rmsprop(this.learningRate, 0.0001, 0.9)
     const cost = optimizer.minimize(() => this.calculateLoss(samples), true)
@@ -92,23 +92,23 @@ export class CoreNet implements Network {
     return [loss, 0]
   }
 
-  public getModel (): Model {
+  public getModel(): Model {
     return this.model
   }
 
-  public async save (path: string): Promise<void> {
+  public async save(path: string): Promise<void> {
     await this.model.save(path)
   }
 
-  public async load (path: string): Promise<void> {
+  public async load(path: string): Promise<void> {
     await this.model.load(path)
   }
 
-  public copyWeights (network: Network): void {
+  public copyWeights(network: Network): void {
     this.model.copyWeights(network.getModel())
   }
 
-  public dispose (): number {
+  public dispose(): number {
     return this.model.dispose()
   }
 
@@ -117,7 +117,7 @@ export class CoreNet implements Network {
    * @param batch a game play recorded as observation image for the initial state and the following targets (policy, reward, and value) for each action taken
    * @returns array of `Prediction` used for measuring how close the network predicts the targets
    */
-  private calculatePredictions (batch: Batch): Prediction[] {
+  private calculatePredictions(batch: Batch): Prediction[] {
     const tno = this.initialInference(batch.image.expandDims(0))
     const predictions: Prediction[] = [{
       scale: 1,
@@ -150,7 +150,7 @@ export class CoreNet implements Network {
    * @param targets array of targets as tensors for this batch
    * @returns `LossLog` record containing total loss and individual loss parts averaged for the batch
    */
-  private measureLoss (predictions: Prediction[], targets: Target[]): LossLog {
+  private measureLoss(predictions: Prediction[], targets: Target[]): LossLog {
     const batchTotalLoss: LossLog = new LossLog()
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
@@ -175,7 +175,7 @@ export class CoreNet implements Network {
     return batchTotalLoss
   }
 
-  private calculateLoss (samples: Batch[]): tf.Scalar {
+  private calculateLoss(samples: Batch[]): tf.Scalar {
     const batchLosses: LossLog = this.calculateSampleLoss(samples)
     /*
             for (const batch of samples) {
@@ -201,7 +201,7 @@ export class CoreNet implements Network {
     return batchLosses.total.asScalar()
   }
 
-  private preparePredictions (sample: Batch[]): Prediction[] {
+  private preparePredictions(sample: Batch[]): Prediction[] {
     const images = tf.concat(sample.map(batch => batch.image.expandDims(0)))
     const tno = this.initialInference(images)
     const predictions: Prediction[] = [{
@@ -229,7 +229,7 @@ export class CoreNet implements Network {
     return predictions
   }
 
-  private prepareLabels (sample: Batch[], predictions: Prediction[]): Prediction[] {
+  private prepareLabels(sample: Batch[], predictions: Prediction[]): Prediction[] {
     const labels: Prediction[] = []
     for (let c = 0; c <= this.numUnrollSteps; c++) {
       labels.push({
@@ -237,13 +237,14 @@ export class CoreNet implements Network {
         value: tf.concat(sample.map(batch => batch.targets[c].value)),
         reward: tf.concat(sample.map(batch => batch.targets[c].reward)),
         // TODO: Check dimension for unstacked policy: ConcatOp : Ranks of all input tensors should match: shape[0] = [1,15] vs. shape[7] = [15]
-        policy: tf.concat(sample.map((batch, i) => c < batch.actions.length ? batch.targets[c].policy : tf.unstack(predictions[c].policy)[i]))
+        policy: tf.concat(sample.map((batch, i) =>
+          c < batch.actions.length ? batch.targets[c].policy : tf.unstack(predictions[c].policy)[i].expandDims(0)))
       })
     }
     return labels
   }
 
-  private calculateSampleLoss (sample: Batch[]): LossLog {
+  private calculateSampleLoss(sample: Batch[]): LossLog {
     const predictions: Prediction[] = this.preparePredictions(sample)
     const labels: Prediction[] = this.prepareLabels(sample, predictions)
     const batchTotalLoss: LossLog = new LossLog()
@@ -274,7 +275,7 @@ export class CoreNet implements Network {
    * @param scale
    * @private
    */
-  private scaleGradient (tensor: tf.Tensor, scale: number): tf.Tensor {
+  private scaleGradient(tensor: tf.Tensor, scale: number): tf.Tensor {
     // Perform the operation: tensor * scale + tf.stop_gradient(tensor) * (1 - scale)
     return tf.tidy(() => {
       const tidyTensor = tf.variable(tensor, false)

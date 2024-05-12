@@ -1,8 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import { type Environment } from '../games/core/environment'
-import { type Playerwise } from './entities'
-import { type Target } from '../replaybuffer/target'
-import { type Action, type Node } from './mctsnode'
+import {type Environment} from '../games/core/environment'
+import {type Playerwise} from './entities'
+import {type Target} from '../replaybuffer/target'
+import {type Action, type Node} from './mctsnode'
 
 interface GameHistoryObject {
   actionHistory: number[]
@@ -185,5 +185,12 @@ export class GameHistory<State extends Playerwise> {
       priorities: this.priorities,
       gamePriority: this.gamePriority
     }
+  }
+
+  public dispose (): number {
+    for (const image of this.observationHistory) {
+      image.dispose()
+    }
+    return this.observationHistory.length
   }
 }

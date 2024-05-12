@@ -1,6 +1,7 @@
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { Playerwise } from '../../selfplay/entities'
-import {Action} from "../../selfplay/mctsnode";
-import {Config} from "./config";
+import { Action } from '../../selfplay/mctsnode'
+import { Config } from './config'
 
 /**
  * MuZeroEnvironment - The environment MuZero is interacting with
@@ -16,7 +17,9 @@ import {Config} from "./config";
  */
 export interface Environment<State extends Playerwise> {
   config (): Config
+
   reset (): State
+
   /*
   `step` is a type of function that you provide that takes in a `State`
   and an `Action` as arguments. It applies the `Action` to the `State` and returns
@@ -27,16 +30,19 @@ export interface Environment<State extends Playerwise> {
   mutate the provided State.
    */
   step (state: State, action: Action): State
+
   /*
   `legalActions` is a type of function that you provide that takes in a `State`
   as an argument and returns an `Array` of possible `Action`s.
   */
   legalActions (state: State): Action[]
+
   /*
   `terminal` is a type of function that you provide that takes in a `State`
   as an argument and returns `true` if the game is over and `false` otherwise.
    */
   terminal (state: State): boolean
+
   /*
   `reward` is a type of function that takes in a `State`
   and a `number` representing the player, as arguments. Given the game `State`,
@@ -46,8 +52,14 @@ export interface Environment<State extends Playerwise> {
   to return 0, but you can decide on a different reward scheme.
    */
   reward (state: State, player: number): number
+
   expertAction (state: State): Action
+
+  expertActionPolicy (state: State): tf.Tensor
+
   deserialize (stream: string): State
+
   serialize (state: State): string
+
   toString (state: State): string
 }

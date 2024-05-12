@@ -59,7 +59,7 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
   }
 
   public legalActions (_: MuZeroCartpoleState): Action[] {
-    return [{ id: 0 }, { id: 1 }]
+    return [{id: 0}, {id: 1}]
   }
 
   /**
@@ -80,11 +80,11 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
   }
 
   public expertAction (_: MuZeroCartpoleState): Action {
-    return { id: -1 }
+    return {id: -1}
   }
 
-  public expertActionPolicy (_: MuZeroCartpoleState): number[] {
-    return new Array<number>(this.actionSpace).fill(0)
+  public expertActionPolicy (_: MuZeroCartpoleState): tf.Tensor {
+    return tf.tensor1d(new Array<number>(this.actionSpace).fill(0))
   }
 
   public toString (state: MuZeroCartpoleState): string {
@@ -94,7 +94,7 @@ export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
   public deserialize (stream: string): MuZeroCartpoleState {
     const [dataset, history] = JSON.parse(stream)
     return new MuZeroCartpoleState(dataset, history.map((a: number) => {
-      return { id: a }
+      return {id: a}
     }))
   }
 

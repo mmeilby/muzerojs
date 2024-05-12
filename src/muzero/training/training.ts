@@ -1,11 +1,11 @@
-import { type SharedStorage } from './sharedstorage'
-import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
+import {type SharedStorage} from './sharedstorage'
+import {type ReplayBuffer} from '../replaybuffer/replaybuffer'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 
-import { type Playerwise } from '../selfplay/entities'
+import {type Playerwise} from '../selfplay/entities'
 
 import debugFactory from 'debug'
-import { type Config } from '../games/core/config'
+import {type Config} from '../games/core/config'
 
 const debug = debugFactory('muzero:training:debug')
 const info = debugFactory('muzero:training:info')
@@ -26,7 +26,6 @@ export class Training<State extends Playerwise> {
     storage.latestNetwork().copyWeights(network)
     debug('Training initiated')
     debug(`Training steps: ${this.config.trainingSteps}`)
-    let useBaseline = tf.memory().numTensors
     for (let step = 1; step <= this.config.trainingSteps; step++) {
       if (step % this.config.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
@@ -38,13 +37,10 @@ export class Training<State extends Playerwise> {
         this.losses.push(loss)
       })
       this.trainingStep++
-      if (tf.memory().numTensors - useBaseline > 0) {
-        console.warn(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
-        useBaseline = tf.memory().numTensors
-      }
       if (info.enabled) {
         info(`--- Performance: ${replayBuffer.statistics().toFixed(1)}%`)
         info(`--- Accuracy (${this.trainingStep}): ${this.statistics().toFixed(2)}`)
+        info(`--- Tensor usage: ${tf.memory().numTensors.toFixed(0)}`)
       }
       await tf.nextFrame()
     }

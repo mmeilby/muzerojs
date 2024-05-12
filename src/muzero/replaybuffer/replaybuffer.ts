@@ -1,12 +1,12 @@
-import { GameHistory } from '../selfplay/gamehistory'
-import { type Playerwise } from '../selfplay/entities'
-import { Batch } from './batch'
-import { MuZeroGameSample } from './gamesample'
-import { MuZeroPositionSample } from './positionsample'
+import {GameHistory} from '../selfplay/gamehistory'
+import {type Playerwise} from '../selfplay/entities'
+import {Batch} from './batch'
+import {MuZeroGameSample} from './gamesample'
+import {MuZeroPositionSample} from './positionsample'
 import fs from 'fs'
 import debugFactory from 'debug'
-import { type Environment } from '../games/core/environment'
-import { type Config } from '../games/core/config'
+import {type Environment} from '../games/core/environment'
+import {type Config} from '../games/core/config'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 
 const debug = debugFactory('muzero:replaybuffer:module')
@@ -74,6 +74,8 @@ export class ReplayBuffer<State extends Playerwise> {
       const delGameHistory = this.buffer.shift()
       if (delGameHistory != null) {
         this.totalSamples -= delGameHistory.rootValues.length
+        // Tidy the observation tensors
+        delGameHistory.dispose()
       }
     }
     this.buffer.push(gameHistory)
@@ -128,7 +130,7 @@ export class ReplayBuffer<State extends Playerwise> {
     environment: Environment<State>
   ): void {
     try {
-      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
+      const json = fs.readFileSync('./data/games.json', {encoding: 'utf8'})
       if (json !== null) {
         this.buffer = new GameHistory(environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)

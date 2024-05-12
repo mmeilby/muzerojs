@@ -46,6 +46,39 @@ export class MuZeroConnectFourState implements Playerwise {
 }
 
 export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
+  private static winningPaths (): tf.Tensor[] {
+    return [
+      tf.oneHot(tf.tensor1d([0, 0, 0, 0], 'int32'), 4),
+      tf.oneHot(tf.tensor1d([1, 1, 1, 1], 'int32'), 4),
+      tf.oneHot(tf.tensor1d([2, 2, 2, 2], 'int32'), 4),
+      tf.oneHot(tf.tensor1d([3, 3, 3, 3], 'int32'), 4),
+      tf.tensor2d([[1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
+      tf.tensor2d([[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]]),
+      tf.tensor2d([[0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0]]),
+      tf.tensor2d([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1]]),
+      tf.oneHot(tf.tensor1d([0, 1, 2, 3], 'int32'), 4),
+      tf.oneHot(tf.tensor1d([3, 2, 1, 0], 'int32'), 4)
+    ]
+  }
+
+  private static haveWinner (state: MuZeroConnectFourState, player?: number): number {
+    const ply = player ?? state.player
+    const paths = MuZeroConnectFour.winningPaths()
+    const board = tf.tensor2d(state.board)
+    for (let dcol = 0; dcol < 3; dcol++) {
+      for (let drow = 0; drow < 2; drow++) {
+        const window = board.slice([drow, dcol], [4, 4])
+        for (const path of paths) {
+          const score = window.mul(path).sum().bufferSync().get(0)
+          if (Math.abs(score) === 4) {
+            return Math.sign(score * ply)
+          }
+        }
+      }
+    }
+    return 0
+  }
+
   config (): Config {
     const actionSpace = 7
     const conf = new Config(actionSpace, new MuZeroConnectFourState(actionSpace, [], []).observationSize)
@@ -80,45 +113,12 @@ export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
     for (let col = 0; col < 7; col++) {
       for (let row = 5; row >= 0; row--) {
         if (state.board[row][col] === 0) {
-          legal.push({ id: row * 7 + col })
+          legal.push({id: row * 7 + col})
           break
         }
       }
     }
     return legal
-  }
-
-  private static winningPaths (): tf.Tensor[] {
-    return [
-      tf.oneHot(tf.tensor1d([0, 0, 0, 0], 'int32'), 4),
-      tf.oneHot(tf.tensor1d([1, 1, 1, 1], 'int32'), 4),
-      tf.oneHot(tf.tensor1d([2, 2, 2, 2], 'int32'), 4),
-      tf.oneHot(tf.tensor1d([3, 3, 3, 3], 'int32'), 4),
-      tf.tensor2d([[1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
-      tf.tensor2d([[0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [0, 0, 0, 0]]),
-      tf.tensor2d([[0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0]]),
-      tf.tensor2d([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 1, 1, 1]]),
-      tf.oneHot(tf.tensor1d([0, 1, 2, 3], 'int32'), 4),
-      tf.oneHot(tf.tensor1d([3, 2, 1, 0], 'int32'), 4)
-    ]
-  }
-
-  private static haveWinner (state: MuZeroConnectFourState, player?: number): number {
-    const ply = player ?? state.player
-    const paths = MuZeroConnectFour.winningPaths()
-    const board = tf.tensor2d(state.board)
-    for (let dcol = 0; dcol < 3; dcol++) {
-      for (let drow = 0; drow < 2; drow++) {
-        const window = board.slice([drow, dcol], [4, 4])
-        for (const path of paths) {
-          const score = window.mul(path).sum().bufferSync().get(0)
-          if (Math.abs(score) === 4) {
-            return Math.sign(score * ply)
-          }
-        }
-      }
-    }
-    return 0
   }
 
   public reward (state: MuZeroConnectFourState, player: number): number {
@@ -155,7 +155,11 @@ export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
       })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
+    return scoreTable.length > 0 ? scoreTable[0].action : {id: -1}
+  }
+
+  public expertActionPolicy (_: MuZeroConnectFourState): tf.Tensor {
+    return tf.tensor1d(new Array<number>(7).fill(0))
   }
 
   public toString (state: MuZeroConnectFourState): string {
@@ -179,7 +183,7 @@ export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroConnectFourState(player, board, history.map((a: number) => {
-      return { id: a }
+      return {id: a}
     }))
   }
 

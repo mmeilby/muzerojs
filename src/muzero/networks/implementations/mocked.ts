@@ -22,21 +22,34 @@ export class MockedNetwork<State extends Playerwise> implements Network {
 
   public initialInference (observation: tf.Tensor): TensorNetworkOutput {
     // The mocked network will respond with the perfect move
-    const state = this.getState(observation)
-    const tfValue = tf.tensor2d([[this.env.reward(state, state.player)]])
-    const action = this.env.expertAction(state)
-    const tfPolicy = this.policyTransform(action.id)
+    const tfValues: tf.Tensor[] = []
+    const tfPolicies: tf.Tensor[] = []
+    for (const obs of tf.unstack(observation)) {
+      const state = this.getState(obs)
+      tfValues.push(tf.tensor2d([[this.env.reward(state, state.player)]]))
+      tfPolicies.push(this.env.expertActionPolicy(state).expandDims(0))
+    }
+    const tfValue = tf.stack(tfValues)
+    const tfPolicy = tf.stack(tfPolicies)
     return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, observation)
   }
 
   public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {
     // The mocked network will respond with the perfect move
-    const state = this.getState(hiddenState)
-    const newState = this.env.step(state, action)
-    const tfValue = tf.tensor2d([[this.env.reward(newState, newState.player)]])
-    const newAction = this.env.expertAction(newState)
-    const tfPolicy = this.policyTransform(newAction.id)
-    return new TensorNetworkOutput(tfValue, tfValue, tfPolicy, newState.observation)
+    const tfValues: tf.Tensor[] = []
+    const tfPolicies: tf.Tensor[] = []
+    const tfObs: tf.Tensor[] = []
+    const tfActions: tf.Tensor[] = tf.unstack(action)
+    tf.unstack(hiddenState).forEach((hs, index) => {
+      const state = this.getState(hs)
+      const newState = this.env.step(state, {id: tfActions[index].argMax().bufferSync().get(0)})
+      tfValues.push(tf.tensor2d([[this.env.reward(newState, state.player)]]))
+      tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
+      tfObs.push(newState.observation)
+    })
+    const tfValue = tf.stack(tfValues)
+    const tfPolicy = tf.stack(tfPolicies)
+    return new TensorNetworkOutput(tfValue, tfValue, tfPolicy, tf.stack(tfObs))
   }
 
   public trainInference (_: Batch[]): number[] {
@@ -63,9 +76,5 @@ export class MockedNetwork<State extends Playerwise> implements Network {
   public dispose (): number {
     // Nothing to dispose for a mocked network
     return 0
-  }
-
-  private policyTransform (policy: number): tf.Tensor {
-    return tf.oneHot(tf.tensor1d([policy], 'int32'), this.actionSpaceN, 1, 0, 'float32')
   }
 }

@@ -1,10 +1,9 @@
-import { SharedStorage } from './muzero/training/sharedstorage'
-import { ReplayBuffer } from './muzero/replaybuffer/replaybuffer'
-import { SelfPlay } from './muzero/selfplay/selfplay'
-import { MuZeroNim } from './muzero/games/nim/nim'
-import { type MuZeroNimState } from './muzero/games/nim/nimstate'
-import { Training } from './muzero/training/training'
-import * as tf from '@tensorflow/tfjs-node-gpu'
+import {SharedStorage} from './muzero/training/sharedstorage'
+import {ReplayBuffer} from './muzero/replaybuffer/replaybuffer'
+import {SelfPlay} from './muzero/selfplay/selfplay'
+import {MuZeroNim} from './muzero/games/nim/nim'
+import {type MuZeroNimState} from './muzero/games/nim/nimstate'
+import {Training} from './muzero/training/training'
 import debugFactory from 'debug'
 
 const debug = debugFactory('muzero:muzero:debug')
@@ -12,21 +11,22 @@ const debug = debugFactory('muzero:muzero:debug')
 async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const conf = factory.config()
-  conf.trainingSteps = 200000
-  conf.batchSize = 64
-  conf.replayBufferSize = 128
+  conf.trainingSteps = 256
+  conf.batchSize = 16
+  conf.replayBufferSize = 16
   conf.checkpointInterval = 25
   const replayBuffer = new ReplayBuffer<MuZeroNimState>(conf)
   const sharedStorage = new SharedStorage(conf)
   await sharedStorage.loadNetwork()
   const selfPlay = new SelfPlay<MuZeroNimState>(conf, factory)
   const train = new Training<MuZeroNimState>(conf)
-  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
+//  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   //  selfPlay.buildTestHistory(replayBuffer)
   //  replayBuffer.loadSavedGames(factory, model)
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),
-    train.trainNetwork(sharedStorage, replayBuffer)
+    train.trainNetwork(sharedStorage, replayBuffer),
+    selfPlay.performance(sharedStorage)
   ])
   debug(`--- Performance: ${replayBuffer.statistics().toFixed(1)}%`)
   debug(`--- Accuracy (${sharedStorage.networkCount}): ${train.statistics().toFixed(2)}`)

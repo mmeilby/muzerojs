@@ -46,6 +46,32 @@ export class MuZeroTicTacToeState implements Playerwise {
 }
 
 export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
+  private static winningPaths (): tf.Tensor[] {
+    return [
+      tf.oneHot(tf.tensor1d([0, 0, 0], 'int32'), 3),
+      tf.oneHot(tf.tensor1d([1, 1, 1], 'int32'), 3),
+      tf.oneHot(tf.tensor1d([2, 2, 2], 'int32'), 3),
+      tf.tensor2d([[1, 1, 1], [0, 0, 0], [0, 0, 0]]),
+      tf.tensor2d([[0, 0, 0], [1, 1, 1], [0, 0, 0]]),
+      tf.tensor2d([[0, 0, 0], [0, 0, 0], [1, 1, 1]]),
+      tf.oneHot(tf.tensor1d([0, 1, 2], 'int32'), 3),
+      tf.oneHot(tf.tensor1d([2, 1, 0], 'int32'), 3)
+    ]
+  }
+
+  private static haveWinner (state: MuZeroTicTacToeState, player?: number): number {
+    const ply = player ?? state.player
+    const paths = MuZeroTicTacToe.winningPaths()
+    const board = tf.tensor2d(state.board)
+    for (const path of paths) {
+      const score = board.mul(path).sum().bufferSync().get(0)
+      if (Math.abs(score) === 3) {
+        return Math.sign(score * ply)
+      }
+    }
+    return 0
+  }
+
   config (): Config {
     const actionSpace = 9
     const conf = new Config(actionSpace, new MuZeroTicTacToeState(actionSpace, [], []).observationSize)
@@ -81,36 +107,10 @@ export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
       const row = Math.floor(i / 3)
       const col = i % 3
       if (state.board[row][col] === 0) {
-        legal.push({ id: i })
+        legal.push({id: i})
       }
     }
     return legal
-  }
-
-  private static winningPaths (): tf.Tensor[] {
-    return [
-      tf.oneHot(tf.tensor1d([0, 0, 0], 'int32'), 3),
-      tf.oneHot(tf.tensor1d([1, 1, 1], 'int32'), 3),
-      tf.oneHot(tf.tensor1d([2, 2, 2], 'int32'), 3),
-      tf.tensor2d([[1, 1, 1], [0, 0, 0], [0, 0, 0]]),
-      tf.tensor2d([[0, 0, 0], [1, 1, 1], [0, 0, 0]]),
-      tf.tensor2d([[0, 0, 0], [0, 0, 0], [1, 1, 1]]),
-      tf.oneHot(tf.tensor1d([0, 1, 2], 'int32'), 3),
-      tf.oneHot(tf.tensor1d([2, 1, 0], 'int32'), 3)
-    ]
-  }
-
-  private static haveWinner (state: MuZeroTicTacToeState, player?: number): number {
-    const ply = player ?? state.player
-    const paths = MuZeroTicTacToe.winningPaths()
-    const board = tf.tensor2d(state.board)
-    for (const path of paths) {
-      const score = board.mul(path).sum().bufferSync().get(0)
-      if (Math.abs(score) === 3) {
-        return Math.sign(score * ply)
-      }
-    }
-    return 0
   }
 
   public reward (state: MuZeroTicTacToeState, player: number): number {
@@ -142,7 +142,11 @@ export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
       })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
+    return scoreTable.length > 0 ? scoreTable[0].action : {id: -1}
+  }
+
+  public expertActionPolicy (_: MuZeroTicTacToeState): tf.Tensor {
+    return tf.tensor1d(new Array<number>(9).fill(0))
   }
 
   public toString (state: MuZeroTicTacToeState): string {
@@ -166,7 +170,7 @@ export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
   public deserialize (stream: string): MuZeroTicTacToeState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroTicTacToeState(player, board, history.map((a: number) => {
-      return { id: a }
+      return {id: a}
     }))
   }
 

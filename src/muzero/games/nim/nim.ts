@@ -1,3 +1,4 @@
+import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from '../core/environment'
 import { MuZeroNimState } from './nimstate'
 import { config, util } from './nimconfig'
@@ -25,9 +26,11 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
    */
   config (): Config {
     const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationSize)
-    conf.decayingParam = 0.997
-    conf.rootDirichletAlpha = 0.25
-    conf.simulations = 150
+    conf.decayingParam = 0.9
+    conf.rootExplorationFraction = 0.1
+    conf.pbCbase = 5
+    conf.pbCinit = 1.25
+    conf.simulations = 50
     conf.lrInit = 0.0001
     conf.lrDecayRate = 0.1
     conf.savedNetworkPath = 'nim'
@@ -49,36 +52,15 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
 
   public legalActions (state: MuZeroNimState): Action[] {
     const legal = []
-    for (let i = 0; i < config.heaps; i++) {
-      for (let id = 0; id < state.board[i]; id++) {
-        legal.push(this.support.heapNimmingToAction(i, id))
+    // If state is not terminal we can list legal moves
+    if (!this.terminal(state)) {
+      for (let h = 0; h < config.heaps; h++) {
+        for (let n = 0; n < state.board[h]; n++) {
+          legal.push(this.support.heapNimmingToAction(h, n))
+        }
       }
     }
     return legal
-  }
-
-  /**
-   * haveWinner - return the id of the player winning the game
-   * The id returned would be
-   *    1 - player 1 wins
-   *    -1 - player 2 wins
-   *    0 - not possible to claim a winner
-   * @param state The state for which the current player will be evaluated
-   * @private
-   */
-  private haveWinner (state: MuZeroNimState): number {
-    const pinsLeft = state.board.reduce((s, p) => s + p, 0)
-    if (pinsLeft === 0) {
-      // The case where previous player has removed the last pin
-      // For misére games this defines the current player to win
-      return config.misereGame ? state.player : -state.player
-    } else if (pinsLeft === 1) {
-      // The case when there is only one pin left
-      // For misére games this is a loosing situation for the current player
-      return config.misereGame ? -state.player : state.player
-    } else {
-      return 0
-    }
   }
 
   /**
@@ -104,25 +86,70 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
   public expertAction (state: MuZeroNimState): Action {
     const scoreTable = this.rankMoves(state)
     if (scoreTable.length > 0) {
+      scoreTable.sort((a, b) => b.score - a.score)
       const topActions = scoreTable.filter(st => st.score === scoreTable[0].score).map(st => st.action)
       return topActions[Math.floor(Math.random() * topActions.length)]
     } else {
-      return { id: -1 }
+      return {id: -1}
     }
   }
 
-  public expertActionPolicy (state: MuZeroNimState): number[] {
+  public expertActionPolicy (state: MuZeroNimState): tf.Tensor {
     const scoreTable = this.rankMoves(state)
-    const policy: number[] = new Array<number>(this.actionSpace).fill(0)
-    scoreTable.forEach(s => {
-      policy[s.action.id] = s.score
+    const actionIds: number[] = scoreTable.map(s => s.action.id)
+    const policy: number[] = scoreTable.map(s => s.score)
+    return tf.tidy(() => {
+      const indices = tf.tensor1d(actionIds, 'int32')
+      const values = tf.softmax(tf.tensor1d(policy))
+      return tf.sparseToDense(indices, values, [this.actionSpace])
     })
-    if (policy.every(p => p <= 0)) {
-      const sum = policy.reduce((s, p) => s - p)
-      return policy.map(p => p < 0 ? 1 / sum : 0)
+  }
+
+  public toString (state: MuZeroNimState): string {
+    const prettyBoard: string[] = []
+    for (let i = 0; i < config.heaps; i++) {
+      const pinsLeft = state.board[i]
+      if (pinsLeft > 0) {
+        prettyBoard.push(`${pinsLeft}`)
+      } else {
+        prettyBoard.push('_')
+      }
+    }
+    return prettyBoard.join('|')
+  }
+
+  public deserialize (stream: string): MuZeroNimState {
+    const [player, board, history] = JSON.parse(stream)
+    return new MuZeroNimState(player, board, history.map((a: number) => {
+      return {id: a}
+    }))
+  }
+
+  public serialize (state: MuZeroNimState): string {
+    return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
+  }
+
+  /**
+   * haveWinner - return the id of the player winning the game
+   * The id returned would be
+   *    1 - player 1 wins
+   *    -1 - player 2 wins
+   *    0 - not possible to claim a winner
+   * @param state The state for which the current player will be evaluated
+   * @private
+   */
+  private haveWinner (state: MuZeroNimState): number {
+    const pinsLeft = state.board.reduce((s, p) => s + p, 0)
+    if (pinsLeft === 0) {
+      // The case where previous player has removed the last pin
+      // For misére games this defines the current player to win
+      return config.misereGame ? state.player : -state.player
+    } else if (pinsLeft === 1) {
+      // The case when there is only one pin left
+      // For misére games this is a loosing situation for the current player
+      return config.misereGame ? -state.player : state.player
     } else {
-      const sum = policy.filter(p => p > 0).reduce((s, p) => s + p)
-      return policy.map(p => p > 0 ? 1 / sum : 0)
+      return 0
     }
   }
 
@@ -165,7 +192,6 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
         })
       }
     }
-    scoreTable.sort((a, b) => b.score - a.score)
     if (debug.enabled) {
       const scoreTableString = scoreTable.map(st => {
         return `${this.support.actionToString(st.action)}: ${st.score}`
@@ -173,29 +199,5 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
       debug(`Scoretable: \n${scoreTableString}`)
     }
     return scoreTable
-  }
-
-  public toString (state: MuZeroNimState): string {
-    const prettyBoard: string[] = []
-    for (let i = 0; i < config.heaps; i++) {
-      const pinsLeft = state.board[i]
-      if (pinsLeft > 0) {
-        prettyBoard.push(`${pinsLeft}`)
-      } else {
-        prettyBoard.push('_')
-      }
-    }
-    return prettyBoard.join('|')
-  }
-
-  public deserialize (stream: string): MuZeroNimState {
-    const [player, board, history] = JSON.parse(stream)
-    return new MuZeroNimState(player, board, history.map((a: number) => {
-      return { id: a }
-    }))
-  }
-
-  public serialize (state: MuZeroNimState): string {
-    return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
   }
 }

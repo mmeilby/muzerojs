@@ -30,6 +30,7 @@ export class Normalizer {
   }
 
   normalize (value: number): number {
+    return value
     return this.max_ > this.min_
       ? (value - this.min_) / (this.max_ - this.min_)
       : value
