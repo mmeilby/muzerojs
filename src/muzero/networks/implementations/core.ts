@@ -195,6 +195,7 @@ export class CoreNet implements Network {
      */
     batchLosses.total = batchLosses.total.div(samples.length)
     if (debug.enabled) {
+      debug(`Sample set loss details: V=${batchLosses.value.toFixed(3)} R=${batchLosses.reward.toFixed(3)} P=${batchLosses.policy.toFixed(3)}`)
       debug(`Sample set mean loss: T=${batchLosses.total.bufferSync().get(0).toFixed(3)}`)
     }
     // update weights
@@ -225,7 +226,6 @@ export class CoreNet implements Network {
       // Gradient scaling controls the dynamics network training. To prevent training set scale = 0
       state = this.scaleGradient(tno.tfHiddenState, 0.5)
     }
-    debug(`Predictions: L=${predictions.length} PS=${predictions[0].policy.shape} S=${predictions.at(-1)?.scale}`)
     return predictions
   }
 
@@ -236,7 +236,6 @@ export class CoreNet implements Network {
         scale: 0,
         value: tf.concat(sample.map(batch => batch.targets[c].value)),
         reward: tf.concat(sample.map(batch => batch.targets[c].reward)),
-        // TODO: Check dimension for unstacked policy: ConcatOp : Ranks of all input tensors should match: shape[0] = [1,15] vs. shape[7] = [15]
         policy: tf.concat(sample.map((batch, i) =>
           c < batch.actions.length ? batch.targets[c].policy : tf.unstack(predictions[c].policy)[i].expandDims(0)))
       })

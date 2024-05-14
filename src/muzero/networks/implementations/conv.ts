@@ -1,5 +1,5 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import { type Model } from '../model'
+import {type Model} from '../model'
 
 import debugFactory from 'debug'
 
@@ -12,7 +12,7 @@ export class ResNet implements Model {
   private readonly dynamicsModel: tf.LayersModel
   private readonly rewardModel: tf.LayersModel
 
-  constructor (
+  constructor(
     private readonly inputSize: number[],
     // Length of the action tensors
     private readonly actionSpaceN: number,
@@ -32,27 +32,27 @@ export class ResNet implements Model {
     debug('Constructed five residual networks (ResNet 18)')
   }
 
-  public representation (observation: tf.Tensor): tf.Tensor {
+  public representation(observation: tf.Tensor): tf.Tensor {
     return this.representationModel.predict(observation) as tf.Tensor
   }
 
-  public value (state: tf.Tensor): tf.Tensor {
+  public value(state: tf.Tensor): tf.Tensor {
     return this.valueModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public policy (state: tf.Tensor): tf.Tensor {
+  public policy(state: tf.Tensor): tf.Tensor {
     return this.policyModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public dynamics (conditionedState: tf.Tensor): tf.Tensor {
+  public dynamics(conditionedState: tf.Tensor): tf.Tensor {
     return this.dynamicsModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public reward (conditionedState: tf.Tensor): tf.Tensor {
+  public reward(conditionedState: tf.Tensor): tf.Tensor {
     return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public async save (path: string): Promise<void> {
+  public async save(path: string): Promise<void> {
     await Promise.all([
       this.representationModel.save(path + 'rp'),
       this.valueModel.save(path + 'vm'),
@@ -62,7 +62,7 @@ export class ResNet implements Model {
     ])
   }
 
-  public async load (path: string): Promise<void> {
+  public async load(path: string): Promise<void> {
     const [
       rp, vm, pm, dm, rm
     ] = await Promise.all([
@@ -84,7 +84,7 @@ export class ResNet implements Model {
     rm.dispose()
   }
 
-  public copyWeights (network: Model): void {
+  public copyWeights(network: Model): void {
     if (network instanceof ResNet) {
       tf.tidy(() => {
         network.representationModel.setWeights(this.representationModel.getWeights())
@@ -98,7 +98,7 @@ export class ResNet implements Model {
     }
   }
 
-  public dispose (): number {
+  public dispose(): number {
     let disposed = 0
     disposed += this.representationModel.dispose().numDisposedVariables
     disposed += this.valueModel.dispose().numDisposedVariables
@@ -109,7 +109,7 @@ export class ResNet implements Model {
   }
 
   // Batch normalisation and ReLU always go together, let's add them to the separate function
-  private batchNormRelu (name: string, input: tf.SymbolicTensor): tf.SymbolicTensor {
+  private batchNormRelu(name: string, input: tf.SymbolicTensor): tf.SymbolicTensor {
     const batch = tf.layers.batchNormalization({
       name: `${name}_bn`
     }).apply(input)
@@ -123,7 +123,7 @@ export class ResNet implements Model {
    *
    * @returns {tf.LayersModel} An instance of tf.LayersModel.
    */
-  private createConvModel (): tf.LayersModel {
+  private createConvModel(): tf.LayersModel {
     // Create a sequential neural network model. tf.sequential provides an API
     // for creating "stacked" models where the output from one layer is used as
     // the input to the next layer.
@@ -204,7 +204,7 @@ export class ResNet implements Model {
    * @param noDownSample
    * @private
    */
-  private makeResidualBlock (name: string, input: tf.SymbolicTensor, filters: number, noDownSample: boolean = false): tf.SymbolicTensor {
+  private makeResidualBlock(name: string, input: tf.SymbolicTensor, filters: number, noDownSample: boolean = false): tf.SymbolicTensor {
     const filter1 = tf.layers.conv2d({
       name: `${name}_f1_cv`,
       kernelSize: 3,
@@ -221,7 +221,7 @@ export class ResNet implements Model {
   }
 
   // ResNet - put all together
-  private makeResNet (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+  private makeResNet(name: string, inputShape: number[], outputSize: number): tf.LayersModel {
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
@@ -253,7 +253,61 @@ export class ResNet implements Model {
     })
   }
 
-  private makePolicy (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+  private makePolicy(name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+    /*
+    // Create a sequential neural network model. tf.sequential provides an API
+    // for creating "stacked" models where the output from one layer is used as
+    // the input to the next layer.
+    const model = tf.sequential()
+    // The first layer of the convolutional neural network plays a dual role:
+    // it is both the input layer of the neural network and a layer that performs
+    // the first convolution operation on the input. It receives the 28x28 pixels
+    // black and white images. This input layer uses 16 filters with a kernel size
+    // of 5 pixels each. It uses a simple RELU activation function which pretty
+    // much just looks like this: __/
+    model.add(tf.layers.conv2d({
+      name: `${name}_cv`,
+      inputShape,
+      kernelSize: 3,
+      filters: 16,
+      activation: 'relu'
+    }))
+    // After the first layer we include a MaxPooling layer. This acts as a sort of
+    // downsampling using max values in a region instead of averaging.
+    // https://www.quora.com/What-is-max-pooling-in-convolutional-neural-networks
+    model.add(tf.layers.maxPooling2d({
+      name: `${name}_mp`,
+      poolSize: 2,
+      strides: 2
+    }))
+
+    // Now we flatten the output from the 2D filters into a 1D vector to prepare
+    // it for input into our last layer. This is common practice when feeding
+    // higher dimensional data to a final classification output layer.
+    model.add(tf.layers.flatten({
+      name: `${name}_fl`
+    }))
+
+    model.add(tf.layers.dense({
+      name: `${name}_dh`,
+      units: 64,
+      activation: 'relu'
+    }))
+
+    // Our last layer is a dense layer which has 10 output units, one for each
+    // output class (i.e. 0, 1, 2, 3, 4, 5, 6, 7, 8, 9). Here the classes actually
+    // represent numbers, but it's the same idea if you had classes that
+    // represented other entities like dogs and cats (two output classes: 0, 1).
+    // We use the softmax function as the activation for the output layer as it
+    // creates a probability distribution over our 10 classes so their output
+    // values sum to 1.
+    model.add(tf.layers.dense({
+      name: `${name}_do`,
+      units: outputSize,
+      activation: 'softmax'
+    }))
+    return model
+    */
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
@@ -290,7 +344,7 @@ export class ResNet implements Model {
     })
   }
 
-  private makeValue (name: string, inputShape: number[]): tf.LayersModel {
+  private makeValue(name: string, inputShape: number[]): tf.LayersModel {
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
