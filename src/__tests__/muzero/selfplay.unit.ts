@@ -30,7 +30,7 @@ class SelfPlayTest extends SelfPlay<MuZeroNimState> {
   public testSelectAction (visits: number[]): number {
     const root = new Node(new MuZeroNimState(1, [], []), [])
     visits.forEach((v, i) => {
-      const child = root.addChild(new MuZeroNimState(1, [], []), [], {id: i})
+      const child = root.addChild(new MuZeroNimState(1, [], []), [], { id: i })
       child.visits = v
     })
     return this.selectAction(root).id
@@ -42,7 +42,7 @@ class SelfPlayTest extends SelfPlay<MuZeroNimState> {
 
   public testExpandNode (gameHistory: GameHistory<MuZeroNimState>, network: MockedNetwork<MuZeroNimState>) {
     const root = new Node(gameHistory.state, this.fact.legalActions(gameHistory.state))
-    const no = network.initialInference(gameHistory.makeImage(-1).expandDims(0))
+    const no = network.initialInference(gameHistory.makeImage(-1))
     this.expandNode(root, no)
     return root
   }
@@ -50,9 +50,9 @@ class SelfPlayTest extends SelfPlay<MuZeroNimState> {
   public debugChildren (node: Node<MuZeroNimState>, index = 0): void {
     debug(`${'.'.repeat(index)} ${node.visits} P${Math.round(node.prior * 100) / 100} V${Math.round(node.value() * 100) / 100} R${Math.round(node.reward * 100) / 100} ${node.state.toString()}`)
     node.children.forEach(child => {
-//      if (child.visits > 0) {
+      //      if (child.visits > 0) {
       this.debugChildren(child, index + 1)
-//      }
+      //      }
     })
   }
 }
@@ -91,7 +91,7 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check expand node', () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
     const gameHistory = new GameHistory(factory)
-    const no = network.initialInference(gameHistory.makeImage(-1).expandDims(0))
+    const no = network.initialInference(gameHistory.makeImage(-1))
     // save network predicted reward - squeeze to remove batch dimension
     const reward = no.tfReward.squeeze().bufferSync().get(0)
     // save network predicted value - squeeze to remove batch dimension

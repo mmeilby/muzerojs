@@ -11,7 +11,7 @@ import { type Action, Node } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
 
 /* eslint @typescript-eslint/no-var-requires: "off" */
-const {jStat} = require('jstat')
+const { jStat } = require('jstat')
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
 const debug = debugFactory('muzero:selfplay:debug')
@@ -20,7 +20,6 @@ const debug = debugFactory('muzero:selfplay:debug')
  * MuZeroSelfPlay - where the games are played
  */
 export class SelfPlay<State extends Playerwise> {
-
   constructor (
     private readonly config: Config,
     private readonly env: Environment<State>
@@ -87,8 +86,7 @@ export class SelfPlay<State extends Playerwise> {
       const gameHistory = new GameHistory<State>(this.env)
       // Play a game from start to end, register target data on the fly for the game history
       while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-        const currentObservation = gameHistory.makeImage(-1)
-        const networkOutput = network.initialInference(currentObservation.expandDims(0))
+        const networkOutput = network.initialInference(gameHistory.makeImage(-1))
         const legalActions = gameHistory.legalActions().map(a => a.id)
         const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
         const legalPolicy: number[] = policy.map((v, i) => legalActions.includes(i) ? v : 0)
@@ -101,7 +99,7 @@ export class SelfPlay<State extends Playerwise> {
         misfit.push((sumProp - sumPropR) / sumProp)
         const id = legalPolicy.indexOf(maxProp)
         log(`--- Test action: ${id}`)
-        gameHistory.apply({id})
+        gameHistory.apply({ id })
       }
       log(`--- Test policy: ${gameHistory.state.toString()}`)
       log(`--- Misfit: ${misfit.map(v => v.toFixed(2)).toString()}`)
@@ -164,9 +162,7 @@ export class SelfPlay<State extends Playerwise> {
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
-      const currentObservation = gameHistory.makeImage(-1)
-      const networkOutput = network.initialInference(currentObservation.expandDims(0))
-      this.expandNode(rootNode, networkOutput)
+      this.expandNode(rootNode, network.initialInference(gameHistory.makeImage(-1)))
       // We also need to add exploration noise to the root node actions.
       // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
       // rather than only exploring the action which it currently believes to be optimal.
@@ -224,6 +220,7 @@ export class SelfPlay<State extends Playerwise> {
     let action: Action | undefined
     while ((action = node.possibleActionsLeftToExpand.shift()) !== undefined) {
       const state = this.env.step(node.state, action)
+      // TODO: Not only legal actions should be explored - replace legalActions with the full action map
       const child = node.addChild(state, this.env.legalActions(state), action)
       child.prior = policy[action.id] ?? 0
     }

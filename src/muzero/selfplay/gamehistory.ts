@@ -1,8 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import {type Environment} from '../games/core/environment'
-import {type Playerwise} from './entities'
-import {type Target} from '../replaybuffer/target'
-import {type Action, type Node} from './mctsnode'
+import { type Environment } from '../games/core/environment'
+import { type Playerwise } from './entities'
+import { type Target } from '../replaybuffer/target'
+import { type Action, type Node } from './mctsnode'
 
 interface GameHistoryObject {
   actionHistory: number[]
@@ -85,7 +85,8 @@ export class GameHistory<State extends Playerwise> {
     if (image === undefined) {
       throw new Error(`Invalid index used for makeImage(${stateIndex})`)
     }
-    return image
+    // Add batch dimension to image tensor
+    return image.expandDims(0)
   }
 
   /**

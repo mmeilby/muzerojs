@@ -45,6 +45,21 @@ export class MuZeroNimState implements Playerwise {
     return tf.tensor3d(board)
   }
 
+  public static action (action: Action): tf.Tensor {
+    const support = new MuZeroNimUtil()
+    const heap = support.actionToHeap(action.id)
+    const nimming = support.actionToNimming(action.id)
+    const board: number[][][] = []
+    for (let i = 0; i < config.heaps; i++) {
+      const pins: number[][] = []
+      for (let j = 0; j < config.heapSize; j++) {
+        pins[j] = heap === i && j < nimming ? [1] : [0]
+      }
+      board.push(pins)
+    }
+    return tf.tensor3d(board)
+  }
+
   public static state (observation: tf.Tensor): MuZeroNimState {
     const pins: tf.Tensor = observation.sum(1).reshape([config.heaps])
     return new MuZeroNimState(1, pins.arraySync() as number[], [])

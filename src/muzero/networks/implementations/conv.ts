@@ -1,5 +1,5 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import {type Model} from '../model'
+import { type Model } from '../model'
 
 import debugFactory from 'debug'
 
@@ -12,47 +12,47 @@ export class ResNet implements Model {
   private readonly dynamicsModel: tf.LayersModel
   private readonly rewardModel: tf.LayersModel
 
-  constructor(
-    private readonly inputSize: number[],
+  constructor (
+    private readonly inputShape: number[],
     // Length of the action tensors
     private readonly actionSpaceN: number,
     // Length of the hidden state tensors (number of outputs for g.s and h.s)
-    protected readonly hxSize: number = 16
+    protected readonly hxShape: number = 16
   ) {
-    this.representationModel = this.makeResNet('hs', this.inputSize, this.hxSize)
+    this.representationModel = this.makeResNet('hs', this.inputShape, this.hxShape)
     //    this.representationModel.summary()
-    this.valueModel = this.makeValue('fv', [this.hxSize, 1, 1])
+    this.valueModel = this.makeValue('fv', [this.hxShape, 1, 1])
     //    this.valueModel.summary()
-    this.policyModel = this.makePolicy('fp', [this.hxSize, 1, 1], this.actionSpaceN)
+    this.policyModel = this.makePolicy('fp', [this.hxShape, 1, 1], this.actionSpaceN)
     //    this.policyModel.summary()
-    this.rewardModel = this.makeValue('dr', [this.hxSize + this.actionSpaceN, 1, 1])
+    this.rewardModel = this.makeValue('dr', [this.hxShape + this.actionSpaceN, 1, 1])
     //    this.rewardModel.summary()
-    this.dynamicsModel = this.makeResNet('ds', [this.hxSize + this.actionSpaceN, 1, 1], this.hxSize)
+    this.dynamicsModel = this.makeResNet('ds', [this.hxShape + this.actionSpaceN, 1, 1], this.hxShape)
     //    this.dynamicsModel.summary()
     debug('Constructed five residual networks (ResNet 18)')
   }
 
-  public representation(observation: tf.Tensor): tf.Tensor {
+  public representation (observation: tf.Tensor): tf.Tensor {
     return this.representationModel.predict(observation) as tf.Tensor
   }
 
-  public value(state: tf.Tensor): tf.Tensor {
+  public value (state: tf.Tensor): tf.Tensor {
     return this.valueModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public policy(state: tf.Tensor): tf.Tensor {
+  public policy (state: tf.Tensor): tf.Tensor {
     return this.policyModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public dynamics(conditionedState: tf.Tensor): tf.Tensor {
+  public dynamics (conditionedState: tf.Tensor): tf.Tensor {
     return this.dynamicsModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public reward(conditionedState: tf.Tensor): tf.Tensor {
+  public reward (conditionedState: tf.Tensor): tf.Tensor {
     return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
-  public async save(path: string): Promise<void> {
+  public async save (path: string): Promise<void> {
     await Promise.all([
       this.representationModel.save(path + 'rp'),
       this.valueModel.save(path + 'vm'),
@@ -62,7 +62,7 @@ export class ResNet implements Model {
     ])
   }
 
-  public async load(path: string): Promise<void> {
+  public async load (path: string): Promise<void> {
     const [
       rp, vm, pm, dm, rm
     ] = await Promise.all([
@@ -84,7 +84,7 @@ export class ResNet implements Model {
     rm.dispose()
   }
 
-  public copyWeights(network: Model): void {
+  public copyWeights (network: Model): void {
     if (network instanceof ResNet) {
       tf.tidy(() => {
         network.representationModel.setWeights(this.representationModel.getWeights())
@@ -98,7 +98,7 @@ export class ResNet implements Model {
     }
   }
 
-  public dispose(): number {
+  public dispose (): number {
     let disposed = 0
     disposed += this.representationModel.dispose().numDisposedVariables
     disposed += this.valueModel.dispose().numDisposedVariables
@@ -109,7 +109,7 @@ export class ResNet implements Model {
   }
 
   // Batch normalisation and ReLU always go together, let's add them to the separate function
-  private batchNormRelu(name: string, input: tf.SymbolicTensor): tf.SymbolicTensor {
+  private batchNormRelu (name: string, input: tf.SymbolicTensor): tf.SymbolicTensor {
     const batch = tf.layers.batchNormalization({
       name: `${name}_bn`
     }).apply(input)
@@ -123,7 +123,7 @@ export class ResNet implements Model {
    *
    * @returns {tf.LayersModel} An instance of tf.LayersModel.
    */
-  private createConvModel(): tf.LayersModel {
+  private createConvModel (): tf.LayersModel {
     // Create a sequential neural network model. tf.sequential provides an API
     // for creating "stacked" models where the output from one layer is used as
     // the input to the next layer.
@@ -204,7 +204,7 @@ export class ResNet implements Model {
    * @param noDownSample
    * @private
    */
-  private makeResidualBlock(name: string, input: tf.SymbolicTensor, filters: number, noDownSample: boolean = false): tf.SymbolicTensor {
+  private makeResidualBlock (name: string, input: tf.SymbolicTensor, filters: number, noDownSample: boolean = false): tf.SymbolicTensor {
     const filter1 = tf.layers.conv2d({
       name: `${name}_f1_cv`,
       kernelSize: 3,
@@ -221,7 +221,7 @@ export class ResNet implements Model {
   }
 
   // ResNet - put all together
-  private makeResNet(name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+  private makeResNet (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
@@ -253,7 +253,7 @@ export class ResNet implements Model {
     })
   }
 
-  private makePolicy(name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+  private makePolicy (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
     /*
     // Create a sequential neural network model. tf.sequential provides an API
     // for creating "stacked" models where the output from one layer is used as
@@ -344,7 +344,7 @@ export class ResNet implements Model {
     })
   }
 
-  private makeValue(name: string, inputShape: number[]): tf.LayersModel {
+  private makeValue (name: string, inputShape: number[]): tf.LayersModel {
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
