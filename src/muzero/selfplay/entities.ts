@@ -13,10 +13,6 @@ export interface Playerwise {
   toString: () => string
 }
 
-export interface Actionwise {
-  id: number
-}
-
 export class Normalizer {
   constructor (
     private min_ = Infinity,

@@ -1,7 +1,7 @@
 import { type SharedStorage } from '../training/sharedstorage'
 import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
 import { GameHistory } from './gamehistory'
-import { Normalizer, type Playerwise } from './entities'
+import { Normalizer, Playerwise } from './entities'
 import { type Environment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import debugFactory from 'debug'
@@ -10,8 +10,6 @@ import { type Network } from '../networks/nnet'
 import { type Action, Node } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
 
-/* eslint @typescript-eslint/no-var-requires: "off" */
-const { jStat } = require('jstat')
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
 const debug = debugFactory('muzero:selfplay:debug')
@@ -19,11 +17,19 @@ const debug = debugFactory('muzero:selfplay:debug')
 /**
  * MuZeroSelfPlay - where the games are played
  */
-export class SelfPlay<State extends Playerwise> {
+export class SelfPlay {
+
+  private readonly actionRange: Action[]
+
   constructor (
     private readonly config: Config,
-    private readonly env: Environment<State>
+    private readonly env: Environment
   ) {
+    this.actionRange = new Array<number>(this.config.actionSpace).fill(0).map(
+      (_, index) => {
+        return {id: index} as Action
+      }
+    )
   }
 
   /**
@@ -34,7 +40,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param storage
    * @param replayBuffer
    */
-  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
     info('Self play initiated')
     // Produce game plays as long as the training module runs
     do {
@@ -54,7 +60,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param storage
    * @param replayBuffer
    */
-  public async preloadReplayBuffer (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
+  public async preloadReplayBuffer (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
     info(`Preload play initiated - executing ${this.config.replayBufferSize} games`)
     const network = storage.latestNetwork()
     for (let i = 0; i < this.config.replayBufferSize; i++) {
@@ -83,7 +89,7 @@ export class SelfPlay<State extends Playerwise> {
     return tf.tidy(() => {
       const certainty: number[] = []
       const misfit: number[] = []
-      const gameHistory = new GameHistory<State>(this.env)
+      const gameHistory = new GameHistory(this.env)
       // Play a game from start to end, register target data on the fly for the game history
       while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
         const networkOutput = network.initialInference(gameHistory.makeImage(-1))
@@ -99,7 +105,7 @@ export class SelfPlay<State extends Playerwise> {
         misfit.push((sumProp - sumPropR) / sumProp)
         const id = legalPolicy.indexOf(maxProp)
         log(`--- Test action: ${id}`)
-        gameHistory.apply({ id })
+        gameHistory.apply({id})
       }
       log(`--- Test policy: ${gameHistory.state.toString()}`)
       log(`--- Misfit: ${misfit.map(v => v.toFixed(2)).toString()}`)
@@ -112,7 +118,7 @@ export class SelfPlay<State extends Playerwise> {
    * based on the latest version of the trained network
    * @param replayBuffer
    */
-  public buildTestHistory (replayBuffer: ReplayBuffer<State>): void {
+  public buildTestHistory (replayBuffer: ReplayBuffer): void {
     this.unfoldGame(this.env.reset(), [], replayBuffer)
     info(`Build history completed - generated ${replayBuffer.numPlayedGames} games with ${replayBuffer.totalSamples} samples`)
   }
@@ -134,7 +140,7 @@ export class SelfPlay<State extends Playerwise> {
     return i
   }
 
-  protected selectAction (rootNode: Node<State>): Action {
+  protected selectAction (rootNode: Node): Action {
     let action = 0
     if (rootNode.children.length > 1) {
       tf.tidy(() => {
@@ -156,9 +162,9 @@ export class SelfPlay<State extends Playerwise> {
    * @param network
    * @private
    */
-  protected runMCTS (gameHistory: GameHistory<State>, network: Network): Node<State> {
+  protected runMCTS (gameHistory: GameHistory, network: Network): Node {
     const minMaxStats = new Normalizer()
-    const rootNode: Node<State> = new Node<State>(gameHistory.state, this.env.legalActions(gameHistory.state))
+    const rootNode: Node = new Node(gameHistory.state.player, this.env.legalActions(gameHistory.state))
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
@@ -173,7 +179,7 @@ export class SelfPlay<State extends Playerwise> {
         // If we can make an action for the root node let us descend the tree
         for (let sim = 0; sim < this.config.simulations; sim++) {
           let node = rootNode
-          const nodePath: Array<Node<State>> = [rootNode]
+          const nodePath: Array<Node> = [rootNode]
           const debugSearchTree: number[] = []
           while (node.isExpanded() && node.children.length > 0) {
             node = this.selectChild(node, minMaxStats)
@@ -187,14 +193,14 @@ export class SelfPlay<State extends Playerwise> {
           // hidden state given an action and the previous hidden state (obtained from parent node).
           if (nodePath.length > 1 && node.action !== undefined) {
             const tfAction = this.policyTransform(node.action.id)
-            const networkOutput = network.recurrentInference(nodePath[1].hiddenState, tfAction)
+            const networkOutput = network.recurrentInference(nodePath[1].hiddenState!, tfAction)
             debug(`reward: ${networkOutput.tfReward.squeeze().toString()}`)
             this.expandNode(node, networkOutput)
             // Update node path with predicted value - squeeze to remove batch dimension
             this.backPropagate(nodePath, networkOutput.tfValue.squeeze().bufferSync().get(0), node.player, minMaxStats)
           } else {
             debug('Recurrent inference attempted on a root node')
-            debug(`Node: ${JSON.stringify(node.state)}`)
+            debug(`State: ${gameHistory.state.toString()}`)
             throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
           }
         }
@@ -210,7 +216,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param networkOutput
    * @private
    */
-  protected expandNode (node: Node<State>, networkOutput: TensorNetworkOutput): void {
+  protected expandNode (node: Node, networkOutput: TensorNetworkOutput): void {
     // save network predicted hidden state
     node.hiddenState = networkOutput.tfHiddenState
     // save network predicted reward - squeeze to remove batch dimension
@@ -218,10 +224,8 @@ export class SelfPlay<State extends Playerwise> {
     // save network predicted value - squeeze to remove batch dimension
     const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
     let action: Action | undefined
-    while ((action = node.possibleActionsLeftToExpand.shift()) !== undefined) {
-      const state = this.env.step(node.state, action)
-      // TODO: Not only legal actions should be explored - replace legalActions with the full action map
-      const child = node.addChild(state, this.env.legalActions(state), action)
+    while ((action = node.possibleActions.shift()) !== undefined) {
+      const child = node.addChild([...this.actionRange], action)
       child.prior = policy[action.id] ?? 0
     }
   }
@@ -235,8 +239,8 @@ export class SelfPlay<State extends Playerwise> {
    * @param index
    * @private
    */
-  private playGame (network: Network, index: number = 0): GameHistory<State> {
-    const gameHistory = new GameHistory<State>(this.env)
+  private playGame (network: Network, index: number = 0): GameHistory {
+    const gameHistory = new GameHistory(this.env)
     // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network)
@@ -256,12 +260,12 @@ export class SelfPlay<State extends Playerwise> {
     return gameHistory
   }
 
-  private unfoldGame (state: State, actionList: Action[], replayBuffer: ReplayBuffer<State>): void {
+  private unfoldGame (state: Playerwise, actionList: Action[], replayBuffer: ReplayBuffer): void {
     const actions = this.env.legalActions(state)
     for (const action of actions) {
       const newState = this.env.step(state, action)
       if (this.env.terminal(newState)) {
-        const gameHistory = new GameHistory<State>(this.env)
+        const gameHistory = new GameHistory(this.env)
         const rootValue = this.env.reward(newState, newState.player)
         for (const a of actionList.concat(action)) {
           const recommendedAction = this.env.expertAction(gameHistory.state)
@@ -285,9 +289,9 @@ export class SelfPlay<State extends Playerwise> {
    * @param minMaxStats
    * @private
    */
-  private selectChild (node: Node<State>, minMaxStats: Normalizer): Node<State> {
+  private selectChild (node: Node, minMaxStats: Normalizer): Node {
     if (node.children.length === 0) {
-      throw new Error(`SelectChild: No children available for selection. Parent state: ${node.state.toString()}`)
+      throw new Error(`SelectChild: No children available for selection. Parent action: ${node.action?.id ?? -1}`)
     }
     if (node.children.length === 1) {
       return node.children[0]
@@ -328,7 +332,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param exploit
    * @private
    */
-  private ucbScore (parent: Node<State>, child: Node<State>, minMaxStats: Normalizer, exploit = false): number {
+  private ucbScore (parent: Node, child: Node, minMaxStats: Normalizer, exploit = false): number {
     if (exploit) {
       // For exploitation only we simply measure the number of visits
       // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
@@ -353,7 +357,7 @@ export class SelfPlay<State extends Playerwise> {
    * @param minMaxStats
    * @private
    */
-  private backPropagate (nodePath: Array<Node<State>>, nValue: number, player: number, minMaxStats: Normalizer): void {
+  private backPropagate (nodePath: Array<Node>, nValue: number, player: number, minMaxStats: Normalizer): void {
     let value = nValue
     for (const node of nodePath) {
       // register visit
@@ -368,7 +372,7 @@ export class SelfPlay<State extends Playerwise> {
 
   // At the start of each search, we add dirichlet noise to the prior of the root
   // to encourage the search to explore new actions.
-  private addExplorationNoise (node: Node<State>): void {
+  private addExplorationNoise (node: Node): void {
     if (this.config.rootExplorationFraction > 0) {
       // make normalized dirichlet noise vector
       const noise = tf.tidy(() => {

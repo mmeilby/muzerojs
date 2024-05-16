@@ -45,7 +45,7 @@ export class MuZeroConnectFourState implements Playerwise {
   }
 }
 
-export class MuZeroConnectFour implements Environment<MuZeroConnectFourState> {
+export class MuZeroConnectFour implements Environment {
   private static winningPaths (): tf.Tensor[] {
     return [
       tf.oneHot(tf.tensor1d([0, 0, 0, 0], 'int32'), 4),

@@ -8,12 +8,12 @@ import { Config } from '../core/config'
 // const debug = debugFactory('muzero:cartpole:module')
 
 /**
- * NIM game implementation
+ * Cart pole game implementation
  *
- * For games history, rules, and theory check out wikipedia:
- * https://en.wikipedia.org/wiki/Nim
+ * For documentation check out:
+ * https://gymnasium.farama.org/environments/classic_control/cart_pole/
  */
-export class MuZeroCartpole implements Environment<MuZeroCartpoleState> {
+export class MuZeroCartpole implements Environment {
   private readonly actionSpace = 2
 
   /**

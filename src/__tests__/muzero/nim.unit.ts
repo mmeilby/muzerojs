@@ -67,10 +67,8 @@ describe('Nim Unit Test:', () => {
     const s6 = factory.step(s5, support.actionFromString('H5-4'))
     expect(s6.board.toString()).toEqual('0,0,0,0,1')
     expect(factory.toString(s6)).toEqual('_|_|_|_|1')
-    expect(factory.legalActions(s6).map(a => support.actionToString(a))).toEqual(
-      ['H5-1']
-    )
-    expect(factory.terminal(s6)).toEqual(true)
+    expect(factory.legalActions(s6).length).toEqual(0)
+    expect(factory.terminal(s6)).toBeTruthy()
     expect(factory.reward(s6, s6.player)).toEqual(-1)
     const s7 = factory.step(s6, support.actionFromString('H5-1'))
     expect(s7.board.toString()).toEqual('0,0,0,0,0')

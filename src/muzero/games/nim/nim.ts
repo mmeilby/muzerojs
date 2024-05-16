@@ -15,7 +15,7 @@ const debug = debugFactory('muzero:nim:module')
  * For games history, rules, and theory check out wikipedia:
  * https://en.wikipedia.org/wiki/Nim
  */
-export class MuZeroNim implements Environment<MuZeroNimState> {
+export class MuZeroNim implements Environment {
   private readonly support = new MuZeroNimUtil()
   private readonly actionSpace = util.heapMap.reduce((s, h) => s + h, 0)
 
@@ -90,7 +90,7 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
       const topActions = scoreTable.filter(st => st.score === scoreTable[0].score).map(st => st.action)
       return topActions[Math.floor(Math.random() * topActions.length)]
     } else {
-      return { id: -1 }
+      return {id: -1}
     }
   }
 
@@ -121,7 +121,7 @@ export class MuZeroNim implements Environment<MuZeroNimState> {
   public deserialize (stream: string): MuZeroNimState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroNimState(player, board, history.map((a: number) => {
-      return { id: a }
+      return {id: a}
     }))
   }
 

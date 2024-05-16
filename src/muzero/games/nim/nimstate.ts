@@ -5,28 +5,12 @@ import { type Action } from '../../selfplay/mctsnode'
 import { config } from './nimconfig'
 
 export class MuZeroNimState implements Playerwise {
-  private readonly _key: string
-  private readonly _player: number
-  private readonly _board: number[]
-  private readonly _history: Action[]
 
-  constructor (player: number, board: number[], history: Action[]) {
-    this._key = history.length > 0 ? history.map(a => a.id).join(':') : '*'
-    this._player = player
-    this._board = board
-    this._history = history
-  }
-
-  get player (): number {
-    return this._player
-  }
-
-  get board (): number[] {
-    return this._board
-  }
-
-  get history (): Action[] {
-    return this._history
+  constructor (
+    public readonly player: number,
+    public readonly board: number[],
+    public readonly history: Action[]
+  ) {
   }
 
   get observationSize (): number[] {
@@ -38,7 +22,7 @@ export class MuZeroNimState implements Playerwise {
     for (let i = 0; i < config.heaps; i++) {
       const pins: number[][] = []
       for (let j = 0; j < config.heapSize; j++) {
-        pins[j] = j < this._board[i] ? [1] : [0]
+        pins[j] = j < this.board[i] ? [1] : [0]
       }
       board.push(pins)
     }
@@ -67,6 +51,8 @@ export class MuZeroNimState implements Playerwise {
 
   public toString (): string {
     const support = new MuZeroNimUtil()
-    return `${this._key} | ${this._history.length > 0 ? this._history.map(a => support.actionToString(a)).join(':') : '*'} | ${this._board.join('-')}`
+    const actionHistory = this.history.length > 0 ? this.history.map(a => a.id).join(':') : '*'
+    const actionStringHistory = this.history.length > 0 ? this.history.map(a => support.actionToString(a)).join(',') : '*'
+    return `${actionHistory} | ${actionStringHistory} | ${this.board.join('-')}`
   }
 }

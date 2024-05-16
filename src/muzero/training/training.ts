@@ -1,16 +1,14 @@
-import {type SharedStorage} from './sharedstorage'
-import {type ReplayBuffer} from '../replaybuffer/replaybuffer'
+import { type SharedStorage } from './sharedstorage'
+import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 
-import {type Playerwise} from '../selfplay/entities'
-
 import debugFactory from 'debug'
-import {type Config} from '../games/core/config'
+import { type Config } from '../games/core/config'
 
 const debug = debugFactory('muzero:training:debug')
 const info = debugFactory('muzero:training:info')
 
-export class Training<State extends Playerwise> {
+export class Training {
   private trainingStep = 0
   private readonly losses: number[] = []
 
@@ -19,7 +17,7 @@ export class Training<State extends Playerwise> {
   ) {
   }
 
-  public async trainNetwork (storage: SharedStorage, replayBuffer: ReplayBuffer<State>): Promise<void> {
+  public async trainNetwork (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
     // Get a private copy of a new untrained network
     const network = storage.initialize()
     // Update the copy with the weights of a potentially loaded network

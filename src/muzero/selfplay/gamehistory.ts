@@ -12,7 +12,7 @@ interface GameHistoryObject {
   gamePriority: number
 }
 
-export class GameHistory<State extends Playerwise> {
+export class GameHistory {
   // A list of actions taken at each turn of the game
   public readonly actionHistory: Action[]
   // A list of true rewards received at each turn of the game related to the player to act
@@ -28,13 +28,13 @@ export class GameHistory<State extends Playerwise> {
   // Largest absolute deviation from target value of the priorities list
   public gamePriority: number
   // A list of action probability distributions for success at each turn of the game
-  private readonly environment: Environment<State> // Game specific environment.
+  private readonly environment: Environment // Game specific environment.
   private readonly actionSpace: number
   // A list of observation input tensors for the representation network at each turn of the game (before commiting action)
   private readonly observationHistory: tf.Tensor[]
 
   constructor (
-    environment: Environment<State>
+    environment: Environment
   ) {
     this.environment = environment
     this.actionSpace = this.environment.config().actionSpace
@@ -49,9 +49,9 @@ export class GameHistory<State extends Playerwise> {
     this.gamePriority = 0
   }
 
-  private _state: State
+  private _state: Playerwise
 
-  get state (): State {
+  get state (): Playerwise {
     return this._state
   }
 
@@ -65,7 +65,7 @@ export class GameHistory<State extends Playerwise> {
     return this.environment.legalActions(this._state)
   }
 
-  public apply (action: Action): State {
+  public apply (action: Action): Playerwise {
     const state = this.environment.step(this._state, action)
     this.observationHistory.push(state.observation)
     this.rewards.push(this.environment.reward(state, this._state.player))
@@ -75,7 +75,7 @@ export class GameHistory<State extends Playerwise> {
     return state
   }
 
-  public storeSearchStatistics (rootNode: Node<State>): void {
+  public storeSearchStatistics (rootNode: Node): void {
     this.childVisits.push(rootNode.policy(this.actionSpace))
     this.rootValues.push(rootNode.value())
   }
@@ -158,8 +158,8 @@ export class GameHistory<State extends Playerwise> {
     return this.environment.toString(this._state)
   }
 
-  public deserialize (stream: string): Array<GameHistory<State>> {
-    const games: Array<GameHistory<State>> = []
+  public deserialize (stream: string): Array<GameHistory> {
+    const games: Array<GameHistory> = []
     const objects: GameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
       const game = new GameHistory(this.environment)

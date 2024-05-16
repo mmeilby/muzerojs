@@ -9,13 +9,13 @@ import type { Model } from '../model'
 /**
  * Mocked network for MuZero reinforced learning
  */
-export class MockedNetwork<State extends Playerwise> implements Network {
+export class MockedNetwork implements Network {
   // Length of the action tensors
   protected readonly actionSpaceN: number
 
   constructor (
-    private readonly env: Environment<State>,
-    private readonly getState: (observation: tf.Tensor) => State
+    private readonly env: Environment,
+    private readonly getState: (observation: tf.Tensor) => Playerwise
   ) {
     this.actionSpaceN = env.config().actionSpace
   }

@@ -15,10 +15,10 @@ import { Config } from './config'
  *   - best guess for best next action
  *   - logging
  */
-export interface Environment<State extends Playerwise> {
+export interface Environment {
   config (): Config
 
-  reset (): State
+  reset (): Playerwise
 
   /*
   `step` is a type of function that you provide that takes in a `State`
@@ -29,19 +29,19 @@ export interface Environment<State extends Playerwise> {
   Make sure that the function indeed returns a NEW State and does not simply
   mutate the provided State.
    */
-  step (state: State, action: Action): State
+  step (state: Playerwise, action: Action): Playerwise
 
   /*
   `legalActions` is a type of function that you provide that takes in a `State`
   as an argument and returns an `Array` of possible `Action`s.
   */
-  legalActions (state: State): Action[]
+  legalActions (state: Playerwise): Action[]
 
   /*
   `terminal` is a type of function that you provide that takes in a `State`
   as an argument and returns `true` if the game is over and `false` otherwise.
    */
-  terminal (state: State): boolean
+  terminal (state: Playerwise): boolean
 
   /*
   `reward` is a type of function that takes in a `State`
@@ -51,15 +51,15 @@ export interface Environment<State extends Playerwise> {
   Normally, you would want a win to return 1, a loss to return -1 and a draw
   to return 0, but you can decide on a different reward scheme.
    */
-  reward (state: State, player: number): number
+  reward (state: Playerwise, player: number): number
 
-  expertAction (state: State): Action
+  expertAction (state: Playerwise): Action
 
-  expertActionPolicy (state: State): tf.Tensor
+  expertActionPolicy (state: Playerwise): tf.Tensor
 
-  deserialize (stream: string): State
+  deserialize (stream: string): Playerwise
 
-  serialize (state: State): string
+  serialize (state: Playerwise): string
 
-  toString (state: State): string
+  toString (state: Playerwise): string
 }

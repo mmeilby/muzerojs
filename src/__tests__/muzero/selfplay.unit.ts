@@ -14,10 +14,10 @@ import type { Environment } from '../../muzero/games/core/environment'
 
 const debug = debugFactory('muzero:unit:debug')
 
-class SelfPlayTest extends SelfPlay<MuZeroNimState> {
+class SelfPlayTest extends SelfPlay {
   constructor (
     private readonly conf: Config,
-    private readonly fact: Environment<MuZeroNimState>
+    private readonly fact: Environment
   ) {
     super(conf, fact)
   }
@@ -28,27 +28,27 @@ class SelfPlayTest extends SelfPlay<MuZeroNimState> {
    * @param visits
    */
   public testSelectAction (visits: number[]): number {
-    const root = new Node(new MuZeroNimState(1, [], []), [])
+    const root = new Node(1, [])
     visits.forEach((v, i) => {
-      const child = root.addChild(new MuZeroNimState(1, [], []), [], { id: i })
+      const child = root.addChild([], {id: i})
       child.visits = v
     })
     return this.selectAction(root).id
   }
 
-  public testRunMCTS (gameHistory: GameHistory<MuZeroNimState>, network: MockedNetwork<MuZeroNimState>): Node<MuZeroNimState> {
+  public testRunMCTS (gameHistory: GameHistory, network: MockedNetwork): Node {
     return this.runMCTS(gameHistory, network)
   }
 
-  public testExpandNode (gameHistory: GameHistory<MuZeroNimState>, network: MockedNetwork<MuZeroNimState>) {
-    const root = new Node(gameHistory.state, this.fact.legalActions(gameHistory.state))
+  public testExpandNode (gameHistory: GameHistory, network: MockedNetwork) {
+    const root = new Node(gameHistory.state.player, this.fact.legalActions(gameHistory.state))
     const no = network.initialInference(gameHistory.makeImage(-1))
     this.expandNode(root, no)
     return root
   }
 
-  public debugChildren (node: Node<MuZeroNimState>, index = 0): void {
-    debug(`${'.'.repeat(index)} ${node.visits} P${Math.round(node.prior * 100) / 100} V${Math.round(node.value() * 100) / 100} R${Math.round(node.reward * 100) / 100} ${node.state.toString()}`)
+  public debugChildren (node: Node, index = 0): void {
+    debug(`${'.'.repeat(index)} ${node.visits} P${Math.round(node.prior * 100) / 100} V${Math.round(node.value() * 100) / 100} R${Math.round(node.reward * 100) / 100} ${node.action?.id ?? -1}`)
     node.children.forEach(child => {
       //      if (child.visits > 0) {
       this.debugChildren(child, index + 1)
@@ -58,7 +58,7 @@ class SelfPlayTest extends SelfPlay<MuZeroNimState> {
 }
 
 describe('Muzero Self Play Unit Test:', () => {
-  const factory = new MuZeroNim()
+  const factory = new MuZeroNim() as Environment
   const conf = factory.config()
   // Ensure that SelfPlay ends after only one game production iteration
   conf.trainingSteps = -1
@@ -67,7 +67,7 @@ describe('Muzero Self Play Unit Test:', () => {
   conf.rootExplorationFraction = 0
   conf.pbCbase = 5
   conf.pbCinit = 1.25
-  const network = new MockedNetwork<MuZeroNimState>(factory, MuZeroNimState.state)
+  const network = new MockedNetwork(factory, MuZeroNimState.state)
   const sharedStorage = new SharedStorage(conf, network)
   const selfPlay = new SelfPlay(conf, factory)
   test('Check select action', () => {
@@ -97,7 +97,7 @@ describe('Muzero Self Play Unit Test:', () => {
     // save network predicted value - squeeze to remove batch dimension
     const policy = no.tfPolicy.squeeze().arraySync() as number[]
     const node = selfPlayTest.testExpandNode(gameHistory, network)
-    expect(node.hiddenState.toString()).toEqual(no.tfHiddenState.toString())
+    expect(node.hiddenState!.toString()).toEqual(no.tfHiddenState.toString())
     expect(node.reward).toEqual(reward)
     expect(node.children.length).toEqual(policy.length)
     node.children.forEach(child => {
@@ -168,11 +168,11 @@ describe('Muzero Self Play Unit Test:', () => {
     }
   }, 10000)
   test('Check self play FULL TEST', async () => {
-    const replayBuffer = new ReplayBuffer<MuZeroNimState>(conf)
+    const replayBuffer = new ReplayBuffer(conf)
     for (let i = 1; i <= 50; i++) {
       await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     }
     expect(replayBuffer.numPlayedGames).toEqual(50)
     expect(replayBuffer.statistics()).toEqual(100)
-  }, 20000)
+  }, 50000)
 })

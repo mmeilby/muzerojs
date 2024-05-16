@@ -247,7 +247,7 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
         verbose: 0,
         shuffle: true,
         validationSplit: this.config.validationSize / this.config.batchSize,
-        callbacks: tf.node.tensorBoard(this.logDir, { updateFreq: 'epoch', histogramFreq: 0 })
+        callbacks: tf.node.tensorBoard(this.logDir, { updateFreq: 'epoch', histogramFreq: 0 }).
       }
     )
     tf.node.summaryFileWriter(this.logDir).scalar('loss', history.history.loss[0] as number, ++this.trainingStep)

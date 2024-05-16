@@ -45,7 +45,7 @@ export class MuZeroTicTacToeState implements Playerwise {
   }
 }
 
-export class MuZeroTicTacToe implements Environment<MuZeroTicTacToeState> {
+export class MuZeroTicTacToe implements Environment {
   private static winningPaths (): tf.Tensor[] {
     return [
       tf.oneHot(tf.tensor1d([0, 0, 0], 'int32'), 3),
