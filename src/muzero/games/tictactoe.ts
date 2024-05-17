@@ -1,10 +1,10 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from './core/environment'
-import { type Playerwise } from '../selfplay/entities'
-import { type Action } from '../selfplay/mctsnode'
 import { Config } from './core/config'
+import { type State } from './core/state'
+import { type Action } from './core/action'
 
-export class MuZeroTicTacToeState implements Playerwise {
+export class MuZeroTicTacToeState implements State {
   private readonly _key: string
   private readonly _player: number
   private readonly _board: number[][]
@@ -29,7 +29,7 @@ export class MuZeroTicTacToeState implements Playerwise {
     return this._history
   }
 
-  get observationSize (): number[] {
+  get observationShape (): number[] {
     return [3, 3, 3]
   }
 
@@ -74,7 +74,7 @@ export class MuZeroTicTacToe implements Environment {
 
   config (): Config {
     const actionSpace = 9
-    const conf = new Config(actionSpace, new MuZeroTicTacToeState(actionSpace, [], []).observationSize)
+    const conf = new Config(actionSpace, new MuZeroTicTacToeState(actionSpace, [], []).observationShape)
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -107,7 +107,7 @@ export class MuZeroTicTacToe implements Environment {
       const row = Math.floor(i / 3)
       const col = i % 3
       if (state.board[row][col] === 0) {
-        legal.push({id: i})
+        legal.push({ id: i })
       }
     }
     return legal
@@ -142,7 +142,7 @@ export class MuZeroTicTacToe implements Environment {
       })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : {id: -1}
+    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
   }
 
   public expertActionPolicy (_: MuZeroTicTacToeState): tf.Tensor {
@@ -170,7 +170,7 @@ export class MuZeroTicTacToe implements Environment {
   public deserialize (stream: string): MuZeroTicTacToeState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroTicTacToeState(player, board, history.map((a: number) => {
-      return {id: a}
+      return { id: a }
     }))
   }
 

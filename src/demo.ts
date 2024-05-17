@@ -2,7 +2,9 @@ import { SharedStorage } from './muzero/training/sharedstorage'
 import { MuZeroNim } from './muzero/games/nim/nim'
 import debugFactory from 'debug'
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import { type Action } from './muzero/selfplay/mctsnode'
+
+import { type Action } from './muzero/games/core/action'
+import { MuZeroNimAction } from './muzero/games/nim/nimaction'
 
 const debug = debugFactory('muzero:demo:play ')
 
@@ -18,7 +20,7 @@ async function run (): Promise<void> {
     // select the most popular action
     const bestAction = tf.multinomial(networkOutput.tfPolicy as tf.Tensor1D, 1, undefined, false) as tf.Tensor1D
     const legalActions = factory.legalActions(state)
-    const action: Action = { id: bestAction.bufferSync().get(0) }
+    const action: Action = new MuZeroNimAction(bestAction.bufferSync().get(0))
     if (legalActions.find(a => a.id === action.id) != null) {
       state = factory.step(state, action)
       debug(`--- Best action: ${action.id} ${state.toString()}`)

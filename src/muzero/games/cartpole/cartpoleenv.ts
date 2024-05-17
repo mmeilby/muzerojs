@@ -2,8 +2,10 @@ import { type Environment } from '../core/environment'
 // import debugFactory from 'debug'
 import { MuZeroCartpoleState } from './cartpolestate'
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import { type Action } from '../../selfplay/mctsnode'
 import { Config } from '../core/config'
+import { type Action } from '../core/action'
+import { type State } from '../core/state'
+import { MuZeroCartpoleAction } from './cartpoleaction'
 
 // const debug = debugFactory('muzero:cartpole:module')
 
@@ -28,7 +30,7 @@ export class MuZeroCartpole implements Environment {
       theta: 0,
       thetaDot: 0,
       reward: 0
-    }, []).observationSize)
+    }, []).observationShape)
     conf.maxMoves = 500
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -47,8 +49,11 @@ export class MuZeroCartpole implements Environment {
     return new MuZeroCartpoleState(MuZeroCartpoleState.getRandomState(), [])
   }
 
-  public step (state: MuZeroCartpoleState, action: Action): MuZeroCartpoleState {
-    return new MuZeroCartpoleState(state.update(state.dataset, action.id), state.history.concat([action]))
+  public step (state: State, action: Action): MuZeroCartpoleState {
+    return new MuZeroCartpoleState(
+      (state as MuZeroCartpoleState).update((state as MuZeroCartpoleState).dataset, action.id),
+      (state as MuZeroCartpoleState).history.concat([action])
+    )
   }
 
   /**
@@ -58,8 +63,14 @@ export class MuZeroCartpole implements Environment {
     return tf.tensor2d([[state.dataset.x, state.dataset.xDot, state.dataset.theta, state.dataset.thetaDot]])
   }
 
-  public legalActions (_: MuZeroCartpoleState): Action[] {
-    return [{id: 0}, {id: 1}]
+  public legalActions (_: State): Action[] {
+    return this.actionRange()
+  }
+
+  public actionRange (): Action[] {
+    return new Array<number>(this.actionSpace).fill(0).map(
+      (_, index) => new MuZeroCartpoleAction(index)
+    )
   }
 
   /**
@@ -71,34 +82,37 @@ export class MuZeroCartpole implements Environment {
    * @param state
    * @param _
    */
-  public reward (state: MuZeroCartpoleState, _: number): number {
-    return state.dataset.reward
+  public reward (state: State, _: number): number {
+    return (state as MuZeroCartpoleState).dataset.reward
   }
 
-  public terminal (state: MuZeroCartpoleState): boolean {
-    return state.isDone(state.dataset)
+  public terminal (state: State): boolean {
+    return (state as MuZeroCartpoleState).isDone((state as MuZeroCartpoleState).dataset)
   }
 
-  public expertAction (_: MuZeroCartpoleState): Action {
-    return {id: -1}
+  public expertAction (_: State): Action {
+    return new MuZeroCartpoleAction()
   }
 
-  public expertActionPolicy (_: MuZeroCartpoleState): tf.Tensor {
+  public expertActionPolicy (_: State): tf.Tensor {
     return tf.tensor1d(new Array<number>(this.actionSpace).fill(0))
   }
 
-  public toString (state: MuZeroCartpoleState): string {
+  public toString (state: State): string {
     return state.toString()
   }
 
   public deserialize (stream: string): MuZeroCartpoleState {
     const [dataset, history] = JSON.parse(stream)
     return new MuZeroCartpoleState(dataset, history.map((a: number) => {
-      return {id: a}
+      return new MuZeroCartpoleAction(a)
     }))
   }
 
-  public serialize (state: MuZeroCartpoleState): string {
-    return JSON.stringify([state.dataset, state.history.map(a => a.id)])
+  public serialize (state: State): string {
+    return JSON.stringify([
+      (state as MuZeroCartpoleState).dataset,
+      (state as MuZeroCartpoleState).history.map(a => a.id)
+    ])
   }
 }

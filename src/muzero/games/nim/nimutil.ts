@@ -1,5 +1,7 @@
 import { util } from './nimconfig'
-import {Action} from "../../selfplay/mctsnode";
+
+import { type Action } from '../core/action'
+import { MuZeroNimAction } from './nimaction'
 
 /**
  * NIM game implementation
@@ -8,14 +10,6 @@ import {Action} from "../../selfplay/mctsnode";
  * https://en.wikipedia.org/wiki/Nim
  */
 export class MuZeroNimUtil {
-  private reduce (n: number, level = 0): number {
-    return n >= util.heapMap[level] ? this.reduce(n - util.heapMap[level], level + 1) : level
-  }
-
-  private nimming (n: number, level = 0): number {
-    return n >= util.heapMap[level] ? this.nimming(n - util.heapMap[level], level + 1) : n
-  }
-
   public actionToHeap (action: number): number {
     return this.reduce(action)
   }
@@ -29,7 +23,7 @@ export class MuZeroNimUtil {
     for (let h = 0; h < heap; h++) {
       action += util.heapMap[h]
     }
-    return { id: action }
+    return new MuZeroNimAction(action)
   }
 
   public actionToString (action: Action): string {
@@ -44,9 +38,17 @@ export class MuZeroNimUtil {
   public actionFromString (action: string): Action {
     const [sHeap, sNimming] = action.split('-')
     if (sHeap.includes('?') && sNimming.includes('?')) {
-      return { id: -1 }
+      return new MuZeroNimAction()
     } else {
       return this.heapNimmingToAction(Number.parseInt(sHeap.slice(1)) - 1, Number.parseInt(sNimming) - 1)
     }
+  }
+
+  private reduce (n: number, level = 0): number {
+    return n >= util.heapMap[level] ? this.reduce(n - util.heapMap[level], level + 1) : level
+  }
+
+  private nimming (n: number, level = 0): number {
+    return n >= util.heapMap[level] ? this.nimming(n - util.heapMap[level], level + 1) : n
   }
 }

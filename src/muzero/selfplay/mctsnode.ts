@@ -1,4 +1,5 @@
 import type * as tf from '@tensorflow/tfjs-node-gpu'
+import { Action } from '../games/core/action'
 
 /**
  *
@@ -67,8 +68,4 @@ export class Node {
   public isExpanded (): boolean {
     return this.possibleActions.length === 0
   }
-}
-
-export interface Action {
-  id: number
 }

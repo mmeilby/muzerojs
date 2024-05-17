@@ -1,6 +1,7 @@
 import type * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Target } from './target'
-import { type Action } from '../selfplay/mctsnode'
+
+import { Action } from '../games/core/action'
 
 export class Batch {
   constructor (

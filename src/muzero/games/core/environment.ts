@@ -1,7 +1,7 @@
-import * as tf from '@tensorflow/tfjs-node-gpu'
-import { Playerwise } from '../../selfplay/entities'
-import { Action } from '../../selfplay/mctsnode'
-import { Config } from './config'
+import type * as tf from '@tensorflow/tfjs-node-gpu'
+import { type Config } from './config'
+import { type State } from './state'
+import { type Action } from './action'
 
 /**
  * MuZeroEnvironment - The environment MuZero is interacting with
@@ -16,9 +16,9 @@ import { Config } from './config'
  *   - logging
  */
 export interface Environment {
-  config (): Config
+  config: () => Config
 
-  reset (): Playerwise
+  reset: () => State
 
   /*
   `step` is a type of function that you provide that takes in a `State`
@@ -29,19 +29,20 @@ export interface Environment {
   Make sure that the function indeed returns a NEW State and does not simply
   mutate the provided State.
    */
-  step (state: Playerwise, action: Action): Playerwise
+  step: (state: State, action: Action) => State
 
   /*
   `legalActions` is a type of function that you provide that takes in a `State`
   as an argument and returns an `Array` of possible `Action`s.
   */
-  legalActions (state: Playerwise): Action[]
+  legalActions: (state: State) => Action[]
+  actionRange: () => Action[]
 
   /*
   `terminal` is a type of function that you provide that takes in a `State`
   as an argument and returns `true` if the game is over and `false` otherwise.
    */
-  terminal (state: Playerwise): boolean
+  terminal: (state: State) => boolean
 
   /*
   `reward` is a type of function that takes in a `State`
@@ -51,15 +52,15 @@ export interface Environment {
   Normally, you would want a win to return 1, a loss to return -1 and a draw
   to return 0, but you can decide on a different reward scheme.
    */
-  reward (state: Playerwise, player: number): number
+  reward: (state: State, player: number) => number
 
-  expertAction (state: Playerwise): Action
+  expertAction: (state: State) => Action
 
-  expertActionPolicy (state: Playerwise): tf.Tensor
+  expertActionPolicy: (state: State) => tf.Tensor
 
-  deserialize (stream: string): Playerwise
+  deserialize: (stream: string) => State
 
-  serialize (state: Playerwise): string
+  serialize: (state: State) => string
 
-  toString (state: Playerwise): string
+  toString: (state: State) => string
 }

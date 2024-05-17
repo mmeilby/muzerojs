@@ -3,9 +3,10 @@ import { type Environment } from '../core/environment'
 import { MuZeroNimState } from './nimstate'
 import { config, util } from './nimconfig'
 import debugFactory from 'debug'
-import { MuZeroNimUtil } from './nimutil'
-import { type Action } from '../../selfplay/mctsnode'
 import { Config } from '../core/config'
+import { type Action } from '../core/action'
+import { MuZeroNimAction } from './nimaction'
+import { type State } from '../core/state'
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -16,7 +17,6 @@ const debug = debugFactory('muzero:nim:module')
  * https://en.wikipedia.org/wiki/Nim
  */
 export class MuZeroNim implements Environment {
-  private readonly support = new MuZeroNimUtil()
   private readonly actionSpace = util.heapMap.reduce((s, h) => s + h, 0)
 
   /**
@@ -25,7 +25,7 @@ export class MuZeroNim implements Environment {
    *  boardSize number of board positions for this game
    */
   config (): Config {
-    const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationSize)
+    const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationShape)
     conf.decayingParam = 0.9
     conf.rootExplorationFraction = 0.1
     conf.pbCbase = 5
@@ -42,25 +42,36 @@ export class MuZeroNim implements Environment {
     return new MuZeroNimState(1, board, [])
   }
 
-  public step (state: MuZeroNimState, action: Action): MuZeroNimState {
-    const boardCopy = [...state.board]
-    const heap = this.support.actionToHeap(action.id)
-    const nimmingSize = this.support.actionToNimming(action.id) + 1
-    boardCopy[heap] = boardCopy[heap] < nimmingSize ? 0 : boardCopy[heap] - nimmingSize
-    return new MuZeroNimState(-state.player, boardCopy, state.history.concat([action]))
+  public step (state: State, action: Action): MuZeroNimState {
+    const nimState = this.castState(state)
+    if (action instanceof MuZeroNimAction) {
+      const boardCopy = [...nimState.board]
+      const heap = action.actionToHeap()
+      const nimmingSize = action.actionToNimming() + 1
+      boardCopy[heap] = boardCopy[heap] < nimmingSize ? 0 : boardCopy[heap] - nimmingSize
+      return new MuZeroNimState(-nimState.player, boardCopy, nimState.history.concat([action]))
+    }
+    throw new Error('Action is not instance of NimAction')
   }
 
-  public legalActions (state: MuZeroNimState): Action[] {
-    const legal = []
+  public legalActions (state: State): MuZeroNimAction[] {
+    const nimState = this.castState(state)
+    const legal: MuZeroNimAction[] = []
     // If state is not terminal we can list legal moves
-    if (!this.terminal(state)) {
+    if (!this.terminal(nimState)) {
       for (let h = 0; h < config.heaps; h++) {
-        for (let n = 0; n < state.board[h]; n++) {
-          legal.push(this.support.heapNimmingToAction(h, n))
+        for (let n = 0; n < nimState.board[h]; n++) {
+          legal.push(new MuZeroNimAction().preset(h, n))
         }
       }
     }
     return legal
+  }
+
+  public actionRange (): MuZeroNimAction[] {
+    return new Array<number>(this.actionSpace).fill(0).map(
+      (_, index) => new MuZeroNimAction(index)
+    )
   }
 
   /**
@@ -72,30 +83,32 @@ export class MuZeroNim implements Environment {
    * @param state
    * @param player
    */
-  public reward (state: MuZeroNimState, player: number): number {
+  public reward (state: State, player: number): number {
     // haveWinner returns the player id of a winning party,
     const winner = this.haveWinner(state)
     // so we have to switch the sign if player id is negative
     return winner === 0 ? 0 : winner * player
   }
 
-  public terminal (state: MuZeroNimState): boolean {
+  public terminal (state: State): boolean {
     return this.haveWinner(state) !== 0 // || this.legalActions(state).length === 0
   }
 
-  public expertAction (state: MuZeroNimState): Action {
-    const scoreTable = this.rankMoves(state)
+  public expertAction (state: State): Action {
+    const nimState = this.castState(state)
+    const scoreTable = this.rankMoves(nimState)
     if (scoreTable.length > 0) {
       scoreTable.sort((a, b) => b.score - a.score)
       const topActions = scoreTable.filter(st => st.score === scoreTable[0].score).map(st => st.action)
       return topActions[Math.floor(Math.random() * topActions.length)]
     } else {
-      return {id: -1}
+      return new MuZeroNimAction()
     }
   }
 
-  public expertActionPolicy (state: MuZeroNimState): tf.Tensor {
-    const scoreTable = this.rankMoves(state)
+  public expertActionPolicy (state: State): tf.Tensor {
+    const nimState = this.castState(state)
+    const scoreTable = this.rankMoves(nimState)
     const actionIds: number[] = scoreTable.map(s => s.action.id)
     const policy: number[] = scoreTable.map(s => s.score)
     return tf.tidy(() => {
@@ -105,10 +118,11 @@ export class MuZeroNim implements Environment {
     })
   }
 
-  public toString (state: MuZeroNimState): string {
+  public toString (state: State): string {
+    const nimState = this.castState(state)
     const prettyBoard: string[] = []
     for (let i = 0; i < config.heaps; i++) {
-      const pinsLeft = state.board[i]
+      const pinsLeft = nimState.board[i]
       if (pinsLeft > 0) {
         prettyBoard.push(`${pinsLeft}`)
       } else {
@@ -121,12 +135,20 @@ export class MuZeroNim implements Environment {
   public deserialize (stream: string): MuZeroNimState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroNimState(player, board, history.map((a: number) => {
-      return {id: a}
+      return new MuZeroNimAction(a)
     }))
   }
 
-  public serialize (state: MuZeroNimState): string {
-    return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
+  public serialize (state: State): string {
+    const nimState = this.castState(state)
+    return JSON.stringify([nimState.player, nimState.board, nimState.history.map(a => a.id)])
+  }
+
+  private castState (state: State): MuZeroNimState {
+    if (state instanceof MuZeroNimState) {
+      return state
+    }
+    throw new Error('State is not instance of NimState')
   }
 
   /**
@@ -138,8 +160,9 @@ export class MuZeroNim implements Environment {
    * @param state The state for which the current player will be evaluated
    * @private
    */
-  private haveWinner (state: MuZeroNimState): number {
-    const pinsLeft = state.board.reduce((s, p) => s + p, 0)
+  private haveWinner (state: State): number {
+    const nimState = this.castState(state)
+    const pinsLeft = nimState.board.reduce((s, p) => s + p, 0)
     if (pinsLeft === 0) {
       // The case where previous player has removed the last pin
       // For misére games this defines the current player to win
@@ -158,15 +181,15 @@ export class MuZeroNim implements Environment {
     const actions = this.legalActions(state)
     const scoreTable: Array<{ action: Action, score: number }> = []
     for (const action of actions) {
-      const heap = this.support.actionToHeap(action.id)
-      const nimmingSize = this.support.actionToNimming(action.id) + 1
+      const heap = action.actionToHeap()
+      const nimmingSize = action.actionToNimming() + 1
       if (state.board[heap] >= nimmingSize) {
         const newBoard = [...state.board]
         newBoard[heap] -= nimmingSize
         const binaryDigitalSum = newBoard.reduce((s, p) => s ^ p, 0)
         const maxPinsInHeap = newBoard.reduce((s, p) => Math.max(s, p), 0)
         const nonEmptyHeaps = newBoard.reduce((s, p) => p > 0 ? s + 1 : s, 0)
-        debug(`${this.support.actionToString(action)}: bds=${binaryDigitalSum}`)
+        debug(`${action.toString()}: bds=${binaryDigitalSum}`)
         debug(`maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps}`)
         let opportunity = false
         if (config.misereGame) {
@@ -194,7 +217,7 @@ export class MuZeroNim implements Environment {
     }
     if (debug.enabled) {
       const scoreTableString = scoreTable.map(st => {
-        return `${this.support.actionToString(st.action)}: ${st.score}`
+        return `${st.action.toString()}: ${st.score}`
       }).toString()
       debug(`Scoretable: \n${scoreTableString}`)
     }

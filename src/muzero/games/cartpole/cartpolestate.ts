@@ -1,9 +1,9 @@
-import { type Playerwise } from '../../selfplay/entities'
 import { CartPole, type CartPoleDataSet } from './cartpole'
-import { type Action } from '../../selfplay/mctsnode'
 import * as tf from '@tensorflow/tfjs-node-gpu'
+import { type State } from '../core/state'
+import { type Action } from '../core/action'
 
-export class MuZeroCartpoleState extends CartPole implements Playerwise {
+export class MuZeroCartpoleState extends CartPole implements State {
   private readonly _key: string
   private readonly _player: number
   private readonly _dataset: CartPoleDataSet
@@ -29,7 +29,7 @@ export class MuZeroCartpoleState extends CartPole implements Playerwise {
     return this._history
   }
 
-  get observationSize (): number[] {
+  get observationShape (): number[] {
     return [4]
   }
 

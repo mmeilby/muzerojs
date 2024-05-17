@@ -1,10 +1,10 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from './core/environment'
-import { type Playerwise } from '../selfplay/entities'
-import { type Action } from '../selfplay/mctsnode'
 import { Config } from './core/config'
+import { type State } from './core/state'
+import { type Action } from './core/action'
 
-export class MuZeroConnectFourState implements Playerwise {
+export class MuZeroConnectFourState implements State {
   private readonly _key: string
   private readonly _player: number
   private readonly _board: number[][]
@@ -29,7 +29,7 @@ export class MuZeroConnectFourState implements Playerwise {
     return this._history
   }
 
-  get observationSize (): number[] {
+  get observationShape (): number[] {
     return [3, 6, 7]
   }
 
@@ -81,7 +81,7 @@ export class MuZeroConnectFour implements Environment {
 
   config (): Config {
     const actionSpace = 7
-    const conf = new Config(actionSpace, new MuZeroConnectFourState(actionSpace, [], []).observationSize)
+    const conf = new Config(actionSpace, new MuZeroConnectFourState(actionSpace, [], []).observationShape)
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -113,7 +113,7 @@ export class MuZeroConnectFour implements Environment {
     for (let col = 0; col < 7; col++) {
       for (let row = 5; row >= 0; row--) {
         if (state.board[row][col] === 0) {
-          legal.push({id: row * 7 + col})
+          legal.push({ id: row * 7 + col })
           break
         }
       }
@@ -155,7 +155,7 @@ export class MuZeroConnectFour implements Environment {
       })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : {id: -1}
+    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
   }
 
   public expertActionPolicy (_: MuZeroConnectFourState): tf.Tensor {
@@ -183,7 +183,7 @@ export class MuZeroConnectFour implements Environment {
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroConnectFourState(player, board, history.map((a: number) => {
-      return {id: a}
+      return { id: a }
     }))
   }
 

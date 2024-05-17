@@ -1,8 +1,9 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from '../games/core/environment'
-import { type Playerwise } from './entities'
 import { type Target } from '../replaybuffer/target'
-import { type Action, type Node } from './mctsnode'
+import { type Node } from './mctsnode'
+import { State } from '../games/core/state'
+import { Action } from '../games/core/action'
 
 interface GameHistoryObject {
   actionHistory: number[]
@@ -49,9 +50,9 @@ export class GameHistory {
     this.gamePriority = 0
   }
 
-  private _state: Playerwise
+  private _state: State
 
-  get state (): Playerwise {
+  get state (): State {
     return this._state
   }
 
@@ -65,7 +66,7 @@ export class GameHistory {
     return this.environment.legalActions(this._state)
   }
 
-  public apply (action: Action): Playerwise {
+  public apply (action: Action): State {
     const state = this.environment.step(this._state, action)
     this.observationHistory.push(state.observation)
     this.rewards.push(this.environment.reward(state, this._state.player))

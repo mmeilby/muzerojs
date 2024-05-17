@@ -1,14 +1,16 @@
 import { type SharedStorage } from '../training/sharedstorage'
 import { type ReplayBuffer } from '../replaybuffer/replaybuffer'
 import { GameHistory } from './gamehistory'
-import { Normalizer, Playerwise } from './entities'
+import { Normalizer } from './normalizer'
 import { type Environment } from '../games/core/environment'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import debugFactory from 'debug'
 import { type Config } from '../games/core/config'
 import { type Network } from '../networks/nnet'
-import { type Action, Node } from './mctsnode'
+import { Node } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
+import { type State } from '../games/core/state'
+import { type Action } from '../games/core/action'
 
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
@@ -18,18 +20,13 @@ const debug = debugFactory('muzero:selfplay:debug')
  * MuZeroSelfPlay - where the games are played
  */
 export class SelfPlay {
-
   private readonly actionRange: Action[]
 
   constructor (
     private readonly config: Config,
     private readonly env: Environment
   ) {
-    this.actionRange = new Array<number>(this.config.actionSpace).fill(0).map(
-      (_, index) => {
-        return {id: index} as Action
-      }
-    )
+    this.actionRange = env.actionRange()
   }
 
   /**
@@ -105,7 +102,7 @@ export class SelfPlay {
         misfit.push((sumProp - sumPropR) / sumProp)
         const id = legalPolicy.indexOf(maxProp)
         log(`--- Test action: ${id}`)
-        gameHistory.apply({id})
+        gameHistory.apply(this.actionRange[id])
       }
       log(`--- Test policy: ${gameHistory.state.toString()}`)
       log(`--- Misfit: ${misfit.map(v => v.toFixed(2)).toString()}`)
@@ -179,7 +176,7 @@ export class SelfPlay {
         // If we can make an action for the root node let us descend the tree
         for (let sim = 0; sim < this.config.simulations; sim++) {
           let node = rootNode
-          const nodePath: Array<Node> = [rootNode]
+          const nodePath: Node[] = [rootNode]
           const debugSearchTree: number[] = []
           while (node.isExpanded() && node.children.length > 0) {
             node = this.selectChild(node, minMaxStats)
@@ -191,9 +188,9 @@ export class SelfPlay {
           debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.prior}`)
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state (obtained from parent node).
-          if (nodePath.length > 1 && node.action !== undefined) {
+          if (nodePath.length > 1 && node.action !== undefined && nodePath[1].hiddenState !== undefined) {
             const tfAction = this.policyTransform(node.action.id)
-            const networkOutput = network.recurrentInference(nodePath[1].hiddenState!, tfAction)
+            const networkOutput = network.recurrentInference(nodePath[1].hiddenState, tfAction)
             debug(`reward: ${networkOutput.tfReward.squeeze().toString()}`)
             this.expandNode(node, networkOutput)
             // Update node path with predicted value - squeeze to remove batch dimension
@@ -260,7 +257,7 @@ export class SelfPlay {
     return gameHistory
   }
 
-  private unfoldGame (state: Playerwise, actionList: Action[], replayBuffer: ReplayBuffer): void {
+  private unfoldGame (state: State, actionList: Action[], replayBuffer: ReplayBuffer): void {
     const actions = this.env.legalActions(state)
     for (const action of actions) {
       const newState = this.env.step(state, action)
@@ -357,7 +354,7 @@ export class SelfPlay {
    * @param minMaxStats
    * @private
    */
-  private backPropagate (nodePath: Array<Node>, nValue: number, player: number, minMaxStats: Normalizer): void {
+  private backPropagate (nodePath: Node[], nValue: number, player: number, minMaxStats: Normalizer): void {
     let value = nValue
     for (const node of nodePath) {
       // register visit

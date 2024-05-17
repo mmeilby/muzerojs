@@ -1,35 +1,35 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-import {NetworkOutput} from './networkoutput'
-import {Batch} from '../replaybuffer/batch'
-import {Network, Observation} from './nnet'
-import {Actionwise} from '../games/core/actionwise'
+import { NetworkOutput } from './networkoutput'
+import { type Batch } from '../replaybuffer/batch'
+import { type Network, type Observation } from './nnet'
+import { type Actionwise } from '../games/core/actionwise'
 import debugFactory from 'debug'
-import {Config} from '../games/core/config'
+import { type Config } from '../games/core/config'
 
 const debug = debugFactory('alphazero:network:debug')
 
 export class MuZeroNetObservation implements Observation {
   constructor (
     public state: number[][]
-  ) {}
+  ) {
+  }
 }
 
 export class NNet<Action extends Actionwise> implements Network<Action> {
+  // Size of hidden layer
+  public readonly hiddenLayerSize: number
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
   // Length of the reward representation tensors (number of bins)
   protected readonly rewardSupportSize: number
   // Length of the value representation tensors (number of bins)
   protected readonly valueSupportSize: number
-  // Size of hidden layer
-  public readonly hiddenLayerSize: number
 
   // Scale the value loss to avoid over fitting of the value function,
-  // paper recommends 0.25 (See paper appendix Reanalyze)
-  private readonly valueScale: number
   // L2 weights regularization
   protected readonly weightDecay: number
-
+  // paper recommends 0.25 (See paper appendix Reanalyze)
+  private readonly valueScale: number
   private readonly inferenceModel: tf.LayersModel
 
   private readonly logDir: string
@@ -50,7 +50,10 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
 
     const channels = 16
     const dropout = 0.3
-    const observationInput = tf.input({ shape: config.observationSize, name: 'observation_input' })
+    const observationInput = tf.input({
+      shape: config.observationSize,
+      name: 'observation_input'
+    })
     /*
     const reshapedInput = tf.layers.reshape({
       targetShape: [this.config.observationSize[0], this.config.observationSize[1], 1]
@@ -74,8 +77,16 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
       name: 'AlphaZero Model',
       inputs: observationInput,
       outputs: [
-        tf.layers.dense({ name: 'prediction_policy_output', units: config.actionSpace, activation: 'softmax' }).apply(dqnLayer) as tf.SymbolicTensor,
-        tf.layers.dense({ name: 'prediction_value_output', units: 1, activation: 'tanh' }).apply(dqnLayer) as tf.SymbolicTensor
+        tf.layers.dense({
+          name: 'prediction_policy_output',
+          units: config.actionSpace,
+          activation: 'softmax'
+        }).apply(dqnLayer) as tf.SymbolicTensor,
+        tf.layers.dense({
+          name: 'prediction_value_output',
+          units: 1,
+          activation: 'tanh'
+        }).apply(dqnLayer) as tf.SymbolicTensor
       ]
     })
     this.inferenceModel.compile({
@@ -91,7 +102,110 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
     })
   }
 
-  private createDeepQNetwork(input: tf.SymbolicTensor, channels: number, dropout: number) {
+  /**
+   * initialInference
+   * Execute h(o)->s f(s)->p,v
+   * @param obs
+   */
+  public initialInference (obs: Observation): NetworkOutput {
+    if (!(obs instanceof MuZeroNetObservation)) {
+      throw new Error('Incorrect observation applied to initialInference')
+    }
+    const observation = tf.tensor2d(obs.state)
+    const [tfPolicy, tfValue] = this.inferenceModel.predict(observation.expandDims(0)) as tf.Tensor[]
+    const policy = tfPolicy.squeeze().arraySync() as number[]
+    const value = (tfValue.arraySync() as number[])[0]
+    observation.dispose()
+    tfPolicy.dispose()
+    tfValue.dispose()
+    return new NetworkOutput(value, policy)
+  }
+
+  /**
+   * trainInference
+   * @param samples
+   */
+  public async trainInference (samples: Array<Batch<Action>>): Promise<number> {
+    debug(`Training batch of size=${samples.length}`)
+
+    const rObservations = tf.tidy(() => tf.concat(
+      samples.reduce((ar, batch) =>
+        ar.concat(batch.image.map(img => tf.tensor2d((img as MuZeroNetObservation).state).expandDims(0))),
+      new Array<tf.Tensor<tf.Rank>>())))
+    const rTargetPolicies = tf.tidy(() => tf.concat(
+      samples.reduce((ar, batch) =>
+        ar.concat(batch.targets.map(target => tf.tensor1d(target.policy).expandDims(0))),
+      new Array<tf.Tensor<tf.Rank>>())))
+    const rTargetRewards = tf.tidy(() => tf.concat(
+      samples.reduce((ar, batch) =>
+        ar.concat(batch.targets.map(target => tf.tensor1d([target.reward]))),
+      new Array<tf.Tensor<tf.Rank>>())))
+
+    debug(`Training tensors: Obs=${rObservations.shape} pis=${rTargetPolicies.shape} rewards=${rTargetRewards.shape}`)
+    debug(`Sample training set: obs=${(samples[0].image[0] as MuZeroNetObservation).state} pi=${samples[0].targets[0].policy} v=${samples[0].targets[0].reward}`)
+    /*
+      Use:
+        pip install tensorboard  # Unless you've already installed it.
+        C:\Users\Morten\AppData\Local\Programs\Python\Python39\Scripts\tensorboard.exe --logdir ./logs/fit_logs_1
+     */
+    const history = await this.inferenceModel.fit(
+      rObservations,
+      {
+        prediction_policy_output: rTargetPolicies,
+        prediction_value_output: rTargetRewards
+      },
+      {
+        batchSize: Math.floor(this.config.batchSize / this.config.gradientUpdateFreq),
+        epochs: this.config.epochs,
+        verbose: 0,
+        shuffle: true,
+        validationSplit: this.config.validationSize / this.config.batchSize,
+        callbacks: tf.node.tensorBoard(this.logDir, {
+          updateFreq: 'epoch',
+          histogramFreq: 0
+        })
+      }
+    )
+    tf.node.summaryFileWriter(this.logDir).scalar('loss', history.history.loss[0] as number, ++this.trainingStep)
+    //    const evaluation = this.inferenceModel.evaluate(rObservations, [ rTargetPolicies, rTargetRewards ], { batchSize: 64, verbose: 0 })
+    rObservations.dispose()
+    rTargetPolicies.dispose()
+    rTargetRewards.dispose()
+    return history.history.loss[0] as number
+  }
+
+  public async save (path: string): Promise<void> {
+    await Promise.all([
+      this.inferenceModel.save(path + 'alphazero')
+    ])
+  }
+
+  public async load (path: string): Promise<void> {
+    const [
+      initialInference
+    ] = await Promise.all([
+      tf.loadLayersModel(path + 'alphazero/model.json')
+    ])
+    tf.tidy(() => { this.inferenceModel.setWeights(initialInference.getWeights()) })
+    initialInference.dispose()
+  }
+
+  public copyWeights (network: Network<Action>): void {
+    tf.tidy(() => { (network as NNet<Action>).inferenceModel.setWeights(this.inferenceModel.getWeights()) })
+  }
+
+  public duplicate (): Network<Action> {
+    const copynet: Network<Action> = Object.create(this)
+    this.copyWeights(copynet)
+    return copynet
+  }
+
+  public dispose (): void {
+    //    const ref = this.inferenceModel.dispose()
+    //    debug(`Disposed network: ref count: ${ref.refCountAfterDispose} disposed variables=${ref.numDisposedVariables}`)
+  }
+
+  private createDeepQNetwork (input: tf.SymbolicTensor, channels: number, dropout: number) {
     const reshapedInput = tf.layers.reshape({
       targetShape: [input.shape[1], input.shape[2], 1]
     }).apply(input)
@@ -102,7 +216,7 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
     }).apply(tf.layers.conv2d({
       kernelSize: 3,
       filters: channels,
-      padding: "same",
+      padding: 'same',
       activation: 'relu'
     }).apply(reshapedInput))
     // shape:  [null,2,2,16]
@@ -110,16 +224,19 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
       poolSize: 2,
       strides: 1
     }).apply(tf.layers.conv2d({
-      filters: channels*2,
+      filters: channels * 2,
       kernelSize: 3,
-      padding: "same",
+      padding: 'same',
       activation: 'relu'
     }).apply(convnet1))
     // shape: [null,1,1,32]
     const flatten = tf.layers.flatten().apply(convnet2)
     // shape: [null,32]
-    const dense1 = tf.layers.dense({ units: this.hiddenLayerSize, activation: 'relu' }).apply(flatten)
-    return tf.layers.dropout({rate: dropout}).apply(dense1)
+    const dense1 = tf.layers.dense({
+      units: this.hiddenLayerSize,
+      activation: 'relu'
+    }).apply(flatten)
+    return tf.layers.dropout({ rate: dropout }).apply(dense1)
   }
 
   private resildualBlock (name: string, channels: number, input: tf.SymbolicTensor): tf.SymbolicTensor {
@@ -128,7 +245,7 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
       filters: channels,
       kernelSize: 3,
       strides: 1,
-      activation: 'relu',
+      activation: 'relu'
     }).apply(input) as tf.SymbolicTensor
     return tf.layers.batchNormalization({
       name: `rb_${name}_BN`,
@@ -187,105 +304,5 @@ export class NNet<Action extends Actionwise> implements Network<Action> {
       ph: this.makeHiddenLayer('prediction_policy_hidden', this.hiddenLayerSize),
       p: fp
     }
-  }
-
-  /**
-   * initialInference
-   * Execute h(o)->s f(s)->p,v
-   * @param obs
-   */
-  public initialInference (obs: Observation): NetworkOutput {
-    if (!(obs instanceof MuZeroNetObservation)) {
-      throw new Error(`Incorrect observation applied to initialInference`)
-    }
-    const observation = tf.tensor2d(obs.state)
-    const [tfPolicy, tfValue] = this.inferenceModel.predict(observation.expandDims(0)) as tf.Tensor[]
-    const policy = tfPolicy.squeeze().arraySync() as number[]
-    const value = (tfValue.arraySync() as number[])[0]
-    observation.dispose()
-    tfPolicy.dispose()
-    tfValue.dispose()
-    return new NetworkOutput(value, policy)
-  }
-
-  /**
-   * trainInference
-   * @param samples
-   */
-  public async trainInference (samples: Array<Batch<Action>>): Promise<number> {
-    debug(`Training batch of size=${samples.length}`)
-
-    const rObservations = tf.tidy(() => tf.concat(
-        samples.reduce((ar, batch) =>
-            ar.concat(batch.image.map(img => tf.tensor2d((img as MuZeroNetObservation).state).expandDims(0))),
-            new Array<tf.Tensor<tf.Rank>>())))
-    const rTargetPolicies = tf.tidy(() => tf.concat(
-        samples.reduce((ar, batch) =>
-            ar.concat(batch.targets.map(target => tf.tensor1d(target.policy).expandDims(0))),
-            new Array<tf.Tensor<tf.Rank>>())))
-    const rTargetRewards = tf.tidy(() => tf.concat(
-        samples.reduce((ar, batch) =>
-            ar.concat(batch.targets.map(target => tf.tensor1d([target.reward]))),
-            new Array<tf.Tensor<tf.Rank>>())))
-
-    debug(`Training tensors: Obs=${rObservations.shape} pis=${rTargetPolicies.shape} rewards=${rTargetRewards.shape}`)
-    debug(`Sample training set: obs=${(samples[0].image[0] as MuZeroNetObservation).state} pi=${samples[0].targets[0].policy} v=${samples[0].targets[0].reward}`)
-    /*
-      Use:
-        pip install tensorboard  # Unless you've already installed it.
-        C:\Users\Morten\AppData\Local\Programs\Python\Python39\Scripts\tensorboard.exe --logdir ./logs/fit_logs_1
-     */
-    const history = await this.inferenceModel.fit(
-      rObservations,
-      {
-        prediction_policy_output: rTargetPolicies,
-        prediction_value_output: rTargetRewards
-      },
-      {
-        batchSize: Math.floor(this.config.batchSize / this.config.gradientUpdateFreq),
-        epochs: this.config.epochs,
-        verbose: 0,
-        shuffle: true,
-        validationSplit: this.config.validationSize / this.config.batchSize,
-        callbacks: tf.node.tensorBoard(this.logDir, { updateFreq: 'epoch', histogramFreq: 0 }).
-      }
-    )
-    tf.node.summaryFileWriter(this.logDir).scalar('loss', history.history.loss[0] as number, ++this.trainingStep)
-//    const evaluation = this.inferenceModel.evaluate(rObservations, [ rTargetPolicies, rTargetRewards ], { batchSize: 64, verbose: 0 })
-    rObservations.dispose()
-    rTargetPolicies.dispose()
-    rTargetRewards.dispose()
-    return history.history.loss[0] as number
-  }
-
-  public async save (path: string): Promise<void> {
-    await Promise.all([
-      this.inferenceModel.save(path + 'alphazero')
-    ])
-  }
-
-  public async load (path: string): Promise<void> {
-    const [
-      initialInference
-    ] = await Promise.all([
-      tf.loadLayersModel(path + 'alphazero/model.json')
-    ])
-    tf.tidy(() => this.inferenceModel.setWeights(initialInference.getWeights()))
-    initialInference.dispose()
-  }
-
-  public copyWeights (network: Network<Action>): void {
-    tf.tidy(() => (network as NNet<Action>).inferenceModel.setWeights(this.inferenceModel.getWeights()))
-  }
-
-  public duplicate (): Network<Action> {
-    const copynet: Network<Action> = Object.create(this)
-    this.copyWeights(copynet)
-    return copynet
-  }
-
-  public dispose (): void {
-//    const ref = this.inferenceModel.dispose()
-//    debug(`Disposed network: ref count: ${ref.refCountAfterDispose} disposed variables=${ref.numDisposedVariables}`)
   }
 }

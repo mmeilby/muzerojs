@@ -1,10 +1,11 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import { type Batch } from '../../replaybuffer/batch'
-import { type Playerwise } from '../../selfplay/entities'
 import { type Network } from '../nnet'
 import { type Environment } from '../../games/core/environment'
 import type { Model } from '../model'
+import { type State } from '../../games/core/state'
+import type { Action } from '../../games/core/action'
 
 /**
  * Mocked network for MuZero reinforced learning
@@ -12,12 +13,14 @@ import type { Model } from '../model'
 export class MockedNetwork implements Network {
   // Length of the action tensors
   protected readonly actionSpaceN: number
+  private readonly actionRange: Action[]
 
   constructor (
     private readonly env: Environment,
-    private readonly getState: (observation: tf.Tensor) => Playerwise
+    private readonly getState: (observation: tf.Tensor) => State
   ) {
     this.actionSpaceN = env.config().actionSpace
+    this.actionRange = env.actionRange()
   }
 
   public initialInference (observation: tf.Tensor): TensorNetworkOutput {
@@ -42,7 +45,11 @@ export class MockedNetwork implements Network {
     const tfActions: tf.Tensor[] = tf.unstack(action)
     tf.unstack(hiddenState).forEach((hs, index) => {
       const state = this.getState(hs)
-      const newState = this.env.step(state, {id: tfActions[index].argMax().bufferSync().get(0)})
+      const action = tfActions[index].argMax().bufferSync().get(0)
+      if (action >= this.actionRange.length) {
+        throw new Error(`Mocked action is out of range: ${action}`)
+      }
+      const newState = this.env.step(state, this.actionRange[action])
       tfValues.push(tf.tensor2d([[this.env.reward(newState, state.player)]]))
       tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
       tfObs.push(newState.observation)
