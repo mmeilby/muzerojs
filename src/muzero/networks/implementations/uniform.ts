@@ -3,6 +3,8 @@ import { type Network } from '../nnet'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import type { Model } from '../model'
+import { NetworkState } from '../networkstate'
+import type { Action } from '../../games/core/action'
 
 export class UniformNetwork implements Network {
   constructor (
@@ -11,16 +13,16 @@ export class UniformNetwork implements Network {
   ) {
   }
 
-  public initialInference (observation: tf.Tensor): TensorNetworkOutput {
+  public initialInference (state: NetworkState): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
     const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
-    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, observation)
+    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, state.hiddenState)
   }
 
-  public recurrentInference (hiddenState: tf.Tensor, _: tf.Tensor): TensorNetworkOutput {
+  public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
     const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
-    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, hiddenState)
+    return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, state.hiddenState)
   }
 
   public trainInference (_: Batch[]): number[] {

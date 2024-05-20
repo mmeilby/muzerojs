@@ -1,5 +1,5 @@
-import type * as tf from '@tensorflow/tfjs-node-gpu'
 import { Action } from '../games/core/action'
+import { NetworkState } from '../networks/networkstate'
 
 /**
  *
@@ -14,7 +14,7 @@ export class Node {
   // The predicted prior probability of choosing the action that leads to this node
   public prior: number
   // The hidden state this node corresponds to
-  public hiddenState: tf.Tensor | undefined
+  public hiddenState: NetworkState | undefined
   public readonly children: Node[]
 
   constructor (

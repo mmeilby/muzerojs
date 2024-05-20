@@ -104,21 +104,12 @@ export class ReplayBuffer {
     //    debug('Sample %d games', this.batchSize)
     return gameSamples.map(g => {
       const gameHistory = g.gameHistory
-      //      debug(game.env.toString(game.state))
-      //      debug(game.state.toString())
       const position = this.samplePosition(gameHistory, forceUniform).position
       const actionHistory = gameHistory.actionHistory.slice(position, position + numUnrollSteps)
-      const tfActionHistory = actionHistory.map(
-        action => tf.squeeze(
-          tf.oneHot(
-            tf.tensor1d([action.id], 'int32'),
-            this.config.actionSpace,
-            1,
-            0,
-            'float32'
-          )))
+      const tfActionHistory = actionHistory.map(action => action.action)
       for (let c = actionHistory.length; c < numUnrollSteps; c++) {
-        tfActionHistory.push(tf.zeros([this.config.actionSpace]))
+        // TODO: Move actionShape to state class
+        tfActionHistory.push(tf.zeros(gameHistory.state.observationShape))
       }
       const target = gameHistory.makeTarget(position, numUnrollSteps, tdSteps, this.config.discount)
       return new Batch(gameHistory.makeImage(position), actionHistory, tfActionHistory, target)

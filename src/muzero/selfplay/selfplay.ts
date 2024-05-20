@@ -11,6 +11,7 @@ import { Node } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
 import { type State } from '../games/core/state'
 import { type Action } from '../games/core/action'
+import { NetworkState } from '../networks/networkstate'
 
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
@@ -89,7 +90,7 @@ export class SelfPlay {
       const gameHistory = new GameHistory(this.env)
       // Play a game from start to end, register target data on the fly for the game history
       while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-        const networkOutput = network.initialInference(gameHistory.makeImage(-1))
+        const networkOutput = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
         const legalActions = gameHistory.legalActions().map(a => a.id)
         const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
         const legalPolicy: number[] = policy.map((v, i) => legalActions.includes(i) ? v : 0)
@@ -165,7 +166,8 @@ export class SelfPlay {
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
-      this.expandNode(rootNode, network.initialInference(gameHistory.makeImage(-1)))
+      const tno = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
+      this.expandNode(rootNode, tno)
       // We also need to add exploration noise to the root node actions.
       // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
       // rather than only exploring the action which it currently believes to be optimal.
@@ -188,13 +190,18 @@ export class SelfPlay {
           debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.prior}`)
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state (obtained from parent node).
-          if (nodePath.length > 1 && node.action !== undefined && nodePath[1].hiddenState !== undefined) {
-            const tfAction = this.policyTransform(node.action.id)
-            const networkOutput = network.recurrentInference(nodePath[1].hiddenState, tfAction)
-            debug(`reward: ${networkOutput.tfReward.squeeze().toString()}`)
-            this.expandNode(node, networkOutput)
-            // Update node path with predicted value - squeeze to remove batch dimension
-            this.backPropagate(nodePath, networkOutput.tfValue.squeeze().bufferSync().get(0), node.player, minMaxStats)
+          if (nodePath.length > 1) {
+            const parent = nodePath[1]
+            if (node.action !== undefined && parent.hiddenState !== undefined) {
+              const networkOutput = network.recurrentInference(parent.hiddenState, [node.action])
+              this.expandNode(node, networkOutput)
+              // Update node path with predicted value - squeeze to remove batch dimension
+              this.backPropagate(nodePath, networkOutput.tfValue.squeeze().bufferSync().get(0), node.player, minMaxStats)
+            } else {
+              // This case should not happen - some inconsistency has occurred.
+              // Only unexpanded root node does not have action and hidden state defined
+              throw new Error('Recurrent inference: action or hidden state was unexpected undefined')
+            }
           } else {
             debug('Recurrent inference attempted on a root node')
             debug(`State: ${gameHistory.state.toString()}`)
@@ -215,7 +222,7 @@ export class SelfPlay {
    */
   protected expandNode (node: Node, networkOutput: TensorNetworkOutput): void {
     // save network predicted hidden state
-    node.hiddenState = networkOutput.tfHiddenState
+    node.hiddenState = new NetworkState(networkOutput.tfHiddenState, networkOutput.state)
     // save network predicted reward - squeeze to remove batch dimension
     node.reward = networkOutput.tfReward.squeeze().bufferSync().get(0)
     // save network predicted value - squeeze to remove batch dimension
@@ -336,11 +343,12 @@ export class SelfPlay {
       return child.visits
     }
     const c = Math.log((parent.visits + this.config.pbCbase + 1) / this.config.pbCbase) + this.config.pbCinit
-    const Q = child.visits > 0 ? minMaxStats.normalize(child.reward + child.value() * this.config.decayingParam) : 0
-    const red = Math.abs(minMaxStats.normalize(child.reward + child.value() * this.config.decayingParam) -
-      (child.reward + child.value() * this.config.decayingParam))
-    if (red > 0) {
-      log(`Normalize reduced the reward: ${red} - ${child.reward + child.value() * this.config.decayingParam}`)
+    const q = child.visits > 0 ? child.reward + child.value() * this.config.decayingParam : 0
+    const Q = child.visits > 0 ? minMaxStats.normalize(q) : 0
+    if (debug.enabled) {
+      if (Math.abs(Q - q) > 0) {
+        debug(`Normalize reduced the reward ${Q} from ${q}`)
+      }
     }
     return Q + c * child.prior * Math.sqrt(parent.visits) / (1 + child.visits)
   }

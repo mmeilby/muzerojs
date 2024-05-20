@@ -45,6 +45,30 @@ export class MuZeroConnectFourState implements State {
   }
 }
 
+export class MuZeroConnectFourAction implements Action {
+  public id: number
+
+  constructor (action?: number) {
+    this.id = action ?? -1
+  }
+
+  get actionShape (): number[] {
+    return [1, 6, 7]
+  }
+
+  get action (): tf.Tensor {
+    const actionMap: number[][] = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]]
+    const row = Math.floor(this.id / 7)
+    const col = this.id % 7
+    actionMap[row][col] = 1
+    return tf.tensor4d([[actionMap]])
+  }
+
+  public toString (): string {
+    return this.id.toString()
+  }
+}
+
 export class MuZeroConnectFour implements Environment {
   private static winningPaths (): tf.Tensor[] {
     return [
@@ -61,10 +85,10 @@ export class MuZeroConnectFour implements Environment {
     ]
   }
 
-  private static haveWinner (state: MuZeroConnectFourState, player?: number): number {
-    const ply = player ?? state.player
+  private static haveWinner (state: State, player?: number): number {
+    const ply = player ?? (state as MuZeroConnectFourState).player
     const paths = MuZeroConnectFour.winningPaths()
-    const board = tf.tensor2d(state.board)
+    const board = tf.tensor2d((state as MuZeroConnectFourState).board)
     for (let dcol = 0; dcol < 3; dcol++) {
       for (let drow = 0; drow < 2; drow++) {
         const window = board.slice([drow, dcol], [4, 4])
@@ -100,20 +124,20 @@ export class MuZeroConnectFour implements Environment {
     return new MuZeroConnectFourState(1, [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], [])
   }
 
-  public step (state: MuZeroConnectFourState, action: Action): MuZeroConnectFourState {
-    const boardCopy = state.board.map(r => [...r])
+  public step (state: State, action: Action): MuZeroConnectFourState {
+    const boardCopy = (state as MuZeroConnectFourState).board.map(r => [...r])
     const row = Math.floor(action.id / 7)
     const col = action.id % 7
     boardCopy[row][col] = state.player
-    return new MuZeroConnectFourState(-state.player, boardCopy, state.history.concat([action]))
+    return new MuZeroConnectFourState(-(state as MuZeroConnectFourState).player, boardCopy, (state as MuZeroConnectFourState).history.concat([action]))
   }
 
-  public legalActions (state: MuZeroConnectFourState): Action[] {
+  public legalActions (state: State): Action[] {
     const legal = []
     for (let col = 0; col < 7; col++) {
       for (let row = 5; row >= 0; row--) {
-        if (state.board[row][col] === 0) {
-          legal.push({ id: row * 7 + col })
+        if ((state as MuZeroConnectFourState).board[row][col] === 0) {
+          legal.push(new MuZeroConnectFourAction(row * 7 + col))
           break
         }
       }
@@ -121,23 +145,33 @@ export class MuZeroConnectFour implements Environment {
     return legal
   }
 
-  public reward (state: MuZeroConnectFourState, player: number): number {
+  public actionRange (): Action[] {
+    const legal = []
+    for (let col = 0; col < 7; col++) {
+      for (let row = 5; row >= 0; row--) {
+        legal.push(new MuZeroConnectFourAction(row * 7 + col))
+      }
+    }
+    return legal
+  }
+
+  public reward (state: State, player: number): number {
     return MuZeroConnectFour.haveWinner(state, player)
   }
 
-  public terminal (state: MuZeroConnectFourState): boolean {
+  public terminal (state: State): boolean {
     return MuZeroConnectFour.haveWinner(state) !== 0 || this.legalActions(state).length === 0
   }
 
-  public expertAction (state: MuZeroConnectFourState): Action {
+  public expertAction (state: State): Action {
     const paths = MuZeroConnectFour.winningPaths()
     const actions = this.legalActions(state)
     const scoreTable = []
     for (const action of actions) {
-      const boardCopy = state.board.map(r => [...r])
+      const boardCopy = (state as MuZeroConnectFourState).board.map(r => [...r])
       const row = Math.floor(action.id / 7)
       const col = action.id % 7
-      boardCopy[row][col] = state.player
+      boardCopy[row][col] = (state as MuZeroConnectFourState).player
       const board = tf.tensor2d(boardCopy)
       const scores: number[] = []
       for (let dcol = 0; dcol < 3; dcol++) {
@@ -145,7 +179,7 @@ export class MuZeroConnectFour implements Environment {
           const window = board.slice([drow, dcol], [4, 4])
           for (const path of paths) {
             const score = window.mul(path).sum().bufferSync().get(0)
-            scores.push(score * state.player)
+            scores.push(score * (state as MuZeroConnectFourState).player)
           }
         }
       }
@@ -155,18 +189,18 @@ export class MuZeroConnectFour implements Environment {
       })
     }
     scoreTable.sort((a, b) => b.score - a.score)
-    return scoreTable.length > 0 ? scoreTable[0].action : { id: -1 }
+    return scoreTable.length > 0 ? scoreTable[0].action : new MuZeroConnectFourAction()
   }
 
-  public expertActionPolicy (_: MuZeroConnectFourState): tf.Tensor {
+  public expertActionPolicy (_: State): tf.Tensor {
     return tf.tensor1d(new Array<number>(7).fill(0))
   }
 
-  public toString (state: MuZeroConnectFourState): string {
+  public toString (state: State): string {
     const prettyBoard: string[] = []
     for (let row = 0; row < 6; row++) {
       for (let col = 0; col < 7; col++) {
-        const typ = state.board[row][col]
+        const typ = (state as MuZeroConnectFourState).board[row][col]
         if (typ === 1) {
           prettyBoard.push('X')
         } else if (typ === -1) {
@@ -183,11 +217,15 @@ export class MuZeroConnectFour implements Environment {
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroConnectFourState(player, board, history.map((a: number) => {
-      return { id: a }
+      return {id: a}
     }))
   }
 
-  public serialize (state: MuZeroConnectFourState): string {
-    return JSON.stringify([state.player, state.board, state.history.map(a => a.id)])
+  public serialize (state: State): string {
+    return JSON.stringify([
+      (state as MuZeroConnectFourState).player,
+      (state as MuZeroConnectFourState).board,
+      (state as MuZeroConnectFourState).history.map(a => a.id)
+    ])
   }
 }

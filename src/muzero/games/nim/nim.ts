@@ -26,12 +26,12 @@ export class MuZeroNim implements Environment {
    */
   config (): Config {
     const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationShape)
-    conf.decayingParam = 0.9
+    conf.decayingParam = 1.0
     conf.rootExplorationFraction = 0.1
     conf.pbCbase = 5
     conf.pbCinit = 1.25
     conf.simulations = 50
-    conf.lrInit = 0.0001
+    conf.lrInit = 0.001
     conf.lrDecayRate = 0.1
     conf.savedNetworkPath = 'nim'
     return conf

@@ -6,6 +6,7 @@ import { type Environment } from '../../games/core/environment'
 import type { Model } from '../model'
 import { type State } from '../../games/core/state'
 import type { Action } from '../../games/core/action'
+import { NetworkState } from '../networkstate'
 
 /**
  * Mocked network for MuZero reinforced learning
@@ -17,46 +18,52 @@ export class MockedNetwork implements Network {
 
   constructor (
     private readonly env: Environment,
-    private readonly getState: (observation: tf.Tensor) => State
   ) {
     this.actionSpaceN = env.config().actionSpace
     this.actionRange = env.actionRange()
   }
 
-  public initialInference (observation: tf.Tensor): TensorNetworkOutput {
-    // The mocked network will respond with the perfect move
-    const tfValues: tf.Tensor[] = []
-    const tfPolicies: tf.Tensor[] = []
-    for (const obs of tf.unstack(observation)) {
-      const state = this.getState(obs)
-      tfValues.push(tf.tensor2d([[this.env.reward(state, state.player)]]))
-      tfPolicies.push(this.env.expertActionPolicy(state).expandDims(0))
+  public initialInference (state: NetworkState): TensorNetworkOutput {
+    if (state.states !== undefined) {
+      // The mocked network will respond with the perfect move
+      const tfValues: tf.Tensor[] = []
+      const tfPolicies: tf.Tensor[] = []
+      for (const gameState of state.states) {
+        tfValues.push(tf.tensor2d([[this.env.reward(gameState, gameState.player)]]))
+        tfPolicies.push(this.env.expertActionPolicy(gameState).expandDims(0))
+      }
+      const tfValue = tf.stack(tfValues)
+      const tfPolicy = tf.stack(tfPolicies)
+      const tno = new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, state.hiddenState)
+      tno.state = state.states
+      return tno
+    } else {
+      throw new Error('Game state is undefined for NetworkState')
     }
-    const tfValue = tf.stack(tfValues)
-    const tfPolicy = tf.stack(tfPolicies)
-    return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, observation)
   }
 
-  public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {
-    // The mocked network will respond with the perfect move
-    const tfValues: tf.Tensor[] = []
-    const tfPolicies: tf.Tensor[] = []
-    const tfObs: tf.Tensor[] = []
-    const tfActions: tf.Tensor[] = tf.unstack(action)
-    tf.unstack(hiddenState).forEach((hs, index) => {
-      const state = this.getState(hs)
-      const action = tfActions[index].argMax().bufferSync().get(0)
-      if (action >= this.actionRange.length) {
-        throw new Error(`Mocked action is out of range: ${action}`)
-      }
-      const newState = this.env.step(state, this.actionRange[action])
-      tfValues.push(tf.tensor2d([[this.env.reward(newState, state.player)]]))
-      tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
-      tfObs.push(newState.observation)
-    })
-    const tfValue = tf.stack(tfValues)
-    const tfPolicy = tf.stack(tfPolicies)
-    return new TensorNetworkOutput(tfValue, tfValue, tfPolicy, tf.stack(tfObs))
+  public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
+    if (state.states !== undefined) {
+      // The mocked network will respond with the perfect move
+      const tfValues: tf.Tensor[] = []
+      const tfPolicies: tf.Tensor[] = []
+      const newStates: State[] = []
+      state.states.forEach((gameState, index) => {
+        // @ts-ignore
+        const gameAction = action[index]
+        const newState = this.env.step(gameState, gameAction)
+        newStates.push(newState)
+        tfValues.push(tf.tensor2d([[this.env.reward(newState, gameState.player)]]))
+        tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
+      })
+      const tfValue = tf.stack(tfValues)
+      const tfPolicy = tf.stack(tfPolicies)
+      const tno = new TensorNetworkOutput(tfValue, tfValue, tfPolicy, state.hiddenState)
+      tno.state = newStates
+      return tno
+    } else {
+      throw new Error('State is undefined for NetworkState')
+    }
   }
 
   public trainInference (_: Batch[]): number[] {

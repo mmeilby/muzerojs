@@ -2,10 +2,11 @@ import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import { type Batch } from '../../replaybuffer/batch'
 import { type Network } from '../nnet'
-import { type Target } from '../../replaybuffer/target'
 import { type Model } from '../model'
 
 import debugFactory from 'debug'
+import { NetworkState } from '../networkstate'
+import { Action } from '../../games/core/action'
 
 const debug = debugFactory('muzero:network:core')
 
@@ -56,8 +57,8 @@ export class CoreNet implements Network {
    * ```
    * @param observation
    */
-  public initialInference (observation: tf.Tensor): TensorNetworkOutput {
-    const tfHiddenState = this.model.representation(observation)
+  public initialInference (state: NetworkState): TensorNetworkOutput {
+    const tfHiddenState = this.model.representation(state.hiddenState)
     const tfPolicy = this.model.policy(tfHiddenState)
     const tfValue = this.model.value(tfHiddenState)
     return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, tfHiddenState)
@@ -73,8 +74,8 @@ export class CoreNet implements Network {
    * @param hiddenState
    * @param action
    */
-  public recurrentInference (hiddenState: tf.Tensor, action: tf.Tensor): TensorNetworkOutput {
-    const conditionedHiddenState = tf.concat([hiddenState, action], 1)
+  public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
+    const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a.action))], 1)
     const tfHiddenState = this.model.dynamics(conditionedHiddenState)
     const tfReward = this.model.reward(conditionedHiddenState)
     const tfPolicy = this.model.policy(tfHiddenState)
@@ -116,32 +117,32 @@ export class CoreNet implements Network {
    * Get predicted values from the network for the batch
    * @param batch a game play recorded as observation image for the initial state and the following targets (policy, reward, and value) for each action taken
    * @returns array of `Prediction` used for measuring how close the network predicts the targets
-   */
-  private calculatePredictions (batch: Batch): Prediction[] {
-    const tno = this.initialInference(batch.image)
-    const predictions: Prediction[] = [{
-      scale: 1,
-      value: tno.tfValue,
-      reward: tno.tfReward,
-      policy: tno.tfPolicy
-    }]
-    let state = tno.tfHiddenState
-    for (const action of batch.tfActions) {
-      const tno = this.recurrentInference(state, action)
-      predictions.push({
-        scale: 1 / batch.tfActions.length,
-        value: tno.tfValue,
-        reward: tno.tfReward,
-        policy: tno.tfPolicy
-      })
-      // Prepare new state for next game step
-      // Gradient scaling controls the dynamics network training. To prevent training set scale = 0
-      state = this.scaleGradient(tno.tfHiddenState, 0.5)
-    }
-    return predictions
-  }
+   *
+   private calculatePredictions (batch: Batch): Prediction[] {
+   const tno = this.initialInference(new NetworkState(batch.image))
+   const predictions: Prediction[] = [{
+   scale: 1,
+   value: tno.tfValue,
+   reward: tno.tfReward,
+   policy: tno.tfPolicy
+   }]
+   let state = tno.tfHiddenState
+   for (const action of batch.tfActions) {
+   const tno = this.recurrentInference(new NetworkState(state), new NetworkAction(action))
+   predictions.push({
+   scale: 1 / batch.tfActions.length,
+   value: tno.tfValue,
+   reward: tno.tfReward,
+   policy: tno.tfPolicy
+   })
+   // Prepare new state for next game step
+   // Gradient scaling controls the dynamics network training. To prevent training set scale = 0
+   state = this.scaleGradient(tno.tfHiddenState, 0.5)
+   }
+   return predictions
+   }
 
-  /**
+   /**
    * Measure the total loss for a batch
    * ```
    * Note: for value loss use MSE in board games, cross entropy between categorical values in Atari
@@ -149,32 +150,32 @@ export class CoreNet implements Network {
    * @param predictions array of predictions as tensors for this batch
    * @param targets array of targets as tensors for this batch
    * @returns `LossLog` record containing total loss and individual loss parts averaged for the batch
+   *
+   private measureLoss (predictions: Prediction[], targets: Target[]): LossLog {
+   const batchTotalLoss: LossLog = new LossLog()
+   for (let i = 0; i < predictions.length; i++) {
+   const prediction = predictions[i]
+   const target = targets[i]
+   const lossV = tf.losses.meanSquaredError(target.value, prediction.value).asScalar()
+   batchTotalLoss.value += lossV.bufferSync().get(0)
+   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV.mul(this.valueScale), prediction.scale))
+   if (i > 0) {
+   const lossR = tf.losses.meanSquaredError(target.reward, prediction.reward).asScalar()
+   batchTotalLoss.reward += lossR.bufferSync().get(0)
+   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
+   }
+   if ((target.policy.shape.at(1) ?? 0) > 0) {
+   const lossP = tf.losses.softmaxCrossEntropy(target.policy, prediction.policy).asScalar()
+   batchTotalLoss.policy += lossP.bufferSync().get(0)
+   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
+   }
+   }
+   batchTotalLoss.value /= predictions.length
+   batchTotalLoss.reward /= predictions.length
+   batchTotalLoss.policy /= predictions.length
+   return batchTotalLoss
+   }
    */
-  private measureLoss (predictions: Prediction[], targets: Target[]): LossLog {
-    const batchTotalLoss: LossLog = new LossLog()
-    for (let i = 0; i < predictions.length; i++) {
-      const prediction = predictions[i]
-      const target = targets[i]
-      const lossV = tf.losses.meanSquaredError(target.value, prediction.value).asScalar()
-      batchTotalLoss.value += lossV.bufferSync().get(0)
-      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV.mul(this.valueScale), prediction.scale))
-      if (i > 0) {
-        const lossR = tf.losses.meanSquaredError(target.reward, prediction.reward).asScalar()
-        batchTotalLoss.reward += lossR.bufferSync().get(0)
-        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
-      }
-      if ((target.policy.shape.at(1) ?? 0) > 0) {
-        const lossP = tf.losses.softmaxCrossEntropy(target.policy, prediction.policy).asScalar()
-        batchTotalLoss.policy += lossP.bufferSync().get(0)
-        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
-      }
-    }
-    batchTotalLoss.value /= predictions.length
-    batchTotalLoss.reward /= predictions.length
-    batchTotalLoss.policy /= predictions.length
-    return batchTotalLoss
-  }
-
   private calculateLoss (samples: Batch[]): tf.Scalar {
     const batchLosses: LossLog = this.calculateSampleLoss(samples)
     /*
@@ -204,18 +205,31 @@ export class CoreNet implements Network {
 
   private preparePredictions (sample: Batch[]): Prediction[] {
     const images = tf.concat(sample.map(batch => batch.image))
-    const tno = this.initialInference(images)
+    const tno = this.initialInference(new NetworkState(images))
     const predictions: Prediction[] = [{
       scale: 1,
       value: tno.tfValue,
       reward: tno.tfReward,
       policy: tno.tfPolicy
     }]
+    /*
     const stackedActions = sample.map(batch => tf.stack(batch.tfActions))
     const actions = tf.unstack(tf.stack(stackedActions, 1))
+     */
+    const stackedActions = sample.map(batch => batch.actions)
+    const actions: Action[][] = []
+    stackedActions.forEach((batchActions, j) => {
+      batchActions.forEach((a, i) => {
+        if (j === 0) {
+          actions[i] = [a]
+        } else {
+          actions[i].push(a)
+        }
+      })
+    })
     let state = tno.tfHiddenState
-    for (const action of actions) {
-      const tno = this.recurrentInference(state, action)
+    for (const batchActions of actions) {
+      const tno = this.recurrentInference(new NetworkState(state), batchActions)
       predictions.push({
         scale: 1 / this.numUnrollSteps,
         value: tno.tfValue,

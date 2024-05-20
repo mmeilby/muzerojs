@@ -12,7 +12,7 @@ async function run (): Promise<void> {
   const conf = factory.config()
   conf.trainingSteps = 256
   conf.batchSize = 16
-  conf.replayBufferSize = 16
+  conf.replayBufferSize = 256
   conf.checkpointInterval = 25
   const replayBuffer = new ReplayBuffer(conf)
   const sharedStorage = new SharedStorage(conf)

@@ -30,7 +30,7 @@ export class MuZeroCartpoleState extends CartPole implements State {
   }
 
   get observationShape (): number[] {
-    return [4]
+    return [4, 1]
   }
 
   get observation (): tf.Tensor {
