@@ -5,6 +5,7 @@ import * as tf from '@tensorflow/tfjs-node-gpu'
 
 import { type Action } from './muzero/games/core/action'
 import { MuZeroNimAction } from './muzero/games/nim/nimaction'
+import { NetworkState } from './muzero/networks/networkstate'
 
 const debug = debugFactory('muzero:demo:play ')
 
@@ -14,8 +15,8 @@ async function run (): Promise<void> {
   const sharedStorage = new SharedStorage(conf)
   const network = sharedStorage.latestNetwork()
   let state = factory.reset()
-  const currentObservation = state.observation
-  let networkOutput = network.initialInference(currentObservation.expandDims(0))
+  const currentObservation = state.observation.expandDims(0)
+  let networkOutput = network.initialInference(new NetworkState(currentObservation))
   while (!factory.terminal(state)) {
     // select the most popular action
     const bestAction = tf.multinomial(networkOutput.tfPolicy as tf.Tensor1D, 1, undefined, false) as tf.Tensor1D
@@ -24,8 +25,7 @@ async function run (): Promise<void> {
     if (legalActions.find(a => a.id === action.id) != null) {
       state = factory.step(state, action)
       debug(`--- Best action: ${action.id} ${state.toString()}`)
-      const tfAction = tf.oneHot(tf.tensor1d([action.id], 'int32'), conf.actionSpace, 1, 0, 'float32')
-      networkOutput = network.recurrentInference(networkOutput.tfHiddenState, tfAction)
+      networkOutput = network.recurrentInference(new NetworkState(networkOutput.tfHiddenState), [action])
     } else {
       let nextBestAction = action
       let nextBestPolicy = 0
@@ -38,8 +38,7 @@ async function run (): Promise<void> {
       })
       state = factory.step(state, nextBestAction)
       debug(`--- Next best (legal) action: ${nextBestAction.id} ${state.toString()} - ${action.id} was invalid - policy: [${policyMap.map(v => v.toFixed(4)).toString()}]`)
-      const tfAction = tf.oneHot(tf.tensor1d([nextBestAction.id], 'int32'), conf.actionSpace, 1, 0, 'float32')
-      networkOutput = network.recurrentInference(networkOutput.tfHiddenState, tfAction)
+      networkOutput = network.recurrentInference(new NetworkState(networkOutput.tfHiddenState), [nextBestAction])
     }
   }
   debug(`--- Done ${state.toString()}`)

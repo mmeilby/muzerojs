@@ -105,7 +105,11 @@ export class MuZeroConnectFour implements Environment {
 
   config (): Config {
     const actionSpace = 7
-    const conf = new Config(actionSpace, new MuZeroConnectFourState(actionSpace, [], []).observationShape)
+    const conf = new Config(
+      actionSpace,
+      new MuZeroConnectFourState(actionSpace, [], []).observationShape,
+      new MuZeroConnectFourAction(0).actionShape
+    )
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -217,7 +221,7 @@ export class MuZeroConnectFour implements Environment {
   public deserialize (stream: string): MuZeroConnectFourState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroConnectFourState(player, board, history.map((a: number) => {
-      return {id: a}
+      return new MuZeroConnectFourAction(a)
     }))
   }
 

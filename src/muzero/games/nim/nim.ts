@@ -25,7 +25,11 @@ export class MuZeroNim implements Environment {
    *  boardSize number of board positions for this game
    */
   config (): Config {
-    const conf = new Config(this.actionSpace, new MuZeroNimState(this.actionSpace, [], []).observationShape)
+    const conf = new Config(
+      this.actionSpace,
+      new MuZeroNimState(this.actionSpace, [], []).observationShape,
+      new MuZeroNimAction(0).actionShape
+    )
     conf.decayingParam = 1.0
     conf.rootExplorationFraction = 0.1
     conf.pbCbase = 5
@@ -46,8 +50,8 @@ export class MuZeroNim implements Environment {
     const nimState = this.castState(state)
     if (action instanceof MuZeroNimAction) {
       const boardCopy = [...nimState.board]
-      const heap = action.actionToHeap()
-      const nimmingSize = action.actionToNimming() + 1
+      const heap = action.heap
+      const nimmingSize = action.nimming
       boardCopy[heap] = boardCopy[heap] < nimmingSize ? 0 : boardCopy[heap] - nimmingSize
       return new MuZeroNimState(-nimState.player, boardCopy, nimState.history.concat([action]))
     }
@@ -181,8 +185,8 @@ export class MuZeroNim implements Environment {
     const actions = this.legalActions(state)
     const scoreTable: Array<{ action: Action, score: number }> = []
     for (const action of actions) {
-      const heap = action.actionToHeap()
-      const nimmingSize = action.actionToNimming() + 1
+      const heap = action.heap
+      const nimmingSize = action.nimming
       if (state.board[heap] >= nimmingSize) {
         const newBoard = [...state.board]
         newBoard[heap] -= nimmingSize

@@ -1,13 +1,4 @@
 export class Config {
-
-  // ---------------------------------
-  // Model configuration
-
-  // Number of all possible actions
-  public readonly actionSpace: number
-  // Size of the board representation used as input for the representation network - h(obs)
-  public readonly observationSize: number[]
-
   // ---------------------------------
   // Replay buffer configuration
 
@@ -81,13 +72,23 @@ export class Config {
   /**
    * Construct the configuration object
    * @param actionSpace Number of all possible actions
-   * @param observationSize Size of the board representation used as input
+   * @param observationSize Shape of the board representation used as input
    * for the representation network - h(obs)
+   * @param actionShape Shape of the action representation used as input
+   * for the dynamics network - g(s, a)
    */
-  constructor (actionSpace: number, observationSize: number[]) {
-    this.actionSpace = actionSpace
-    this.tdSteps = actionSpace
-    this.maxMoves = actionSpace
-    this.observationSize = observationSize
+  constructor (
+    // ---------------------------------
+    // Model configuration
+
+    // Number of all possible actions
+    public readonly actionSpace: number,
+    // Shape of the board representation used as input for the representation network - h(obs)
+    public readonly observationSize: number[],
+    // Shape of the action representation used as input for the dynamics network - g(s, a)
+    public readonly actionShape: number[]
+  ) {
+    this.tdSteps = this.actionSpace
+    this.maxMoves = this.actionSpace
   }
 }

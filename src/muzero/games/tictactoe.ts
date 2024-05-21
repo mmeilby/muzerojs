@@ -98,7 +98,11 @@ export class MuZeroTicTacToe implements Environment {
 
   config (): Config {
     const actionSpace = 9
-    const conf = new Config(actionSpace, new MuZeroTicTacToeState(actionSpace, [], []).observationShape)
+    const conf = new Config(
+      actionSpace,
+      new MuZeroTicTacToeState(actionSpace, [], []).observationShape,
+      new MuZeroTicTacToeAction(0).actionShape
+    )
     conf.maxMoves = actionSpace
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25
@@ -202,7 +206,7 @@ export class MuZeroTicTacToe implements Environment {
   public deserialize (stream: string): MuZeroTicTacToeState {
     const [player, board, history] = JSON.parse(stream)
     return new MuZeroTicTacToeState(player, board, history.map((a: number) => {
-      return {id: a}
+      return new MuZeroTicTacToeAction(a)
     }))
   }
 

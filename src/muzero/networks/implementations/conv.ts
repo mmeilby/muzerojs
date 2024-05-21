@@ -14,20 +14,24 @@ export class ResNet implements Model {
 
   constructor (
     private readonly inputShape: number[],
-    // Length of the action tensors
+    // Length of the policy tensors
     private readonly actionSpaceN: number,
-    // Length of the hidden state tensors (number of outputs for g.s and h.s)
-    protected readonly hxShape: number = 16
+    // Shape of the hidden state tensors (outputs for g.s and h.s)
+    protected readonly hxShape: number[],
+    // Shape of action tensors
+    protected readonly actionShape: number[]
   ) {
+    const condHxShape: number[] = [...this.hxShape]
+    condHxShape[0] += this.actionShape[0]
     this.representationModel = this.makeResNet('hs', this.inputShape, this.hxShape)
     //    this.representationModel.summary()
-    this.valueModel = this.makeValue('fv', [this.hxShape, 1, 1])
+    this.valueModel = this.makeValue('fv', this.hxShape)
     //    this.valueModel.summary()
-    this.policyModel = this.makePolicy('fp', [this.hxShape, 1, 1], this.actionSpaceN)
+    this.policyModel = this.makePolicy('fp', this.hxShape, this.actionSpaceN)
     //    this.policyModel.summary()
-    this.rewardModel = this.makeValue('dr', [this.hxShape + this.actionSpaceN, 1, 1])
+    this.rewardModel = this.makeValue('dr', condHxShape)
     //    this.rewardModel.summary()
-    this.dynamicsModel = this.makeResNet('ds', [this.hxShape + this.actionSpaceN, 1, 1], this.hxShape)
+    this.dynamicsModel = this.makeResNet('ds', condHxShape, this.hxShape)
     //    this.dynamicsModel.summary()
     debug('Constructed five residual networks (ResNet 18)')
   }
@@ -37,19 +41,19 @@ export class ResNet implements Model {
   }
 
   public value (state: tf.Tensor): tf.Tensor {
-    return this.valueModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
+    return this.valueModel.predict(state) as tf.Tensor
   }
 
   public policy (state: tf.Tensor): tf.Tensor {
-    return this.policyModel.predict(state.expandDims(2).expandDims(3)) as tf.Tensor
+    return this.policyModel.predict(state) as tf.Tensor
   }
 
   public dynamics (conditionedState: tf.Tensor): tf.Tensor {
-    return this.dynamicsModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
+    return this.dynamicsModel.predict(conditionedState) as tf.Tensor
   }
 
   public reward (conditionedState: tf.Tensor): tf.Tensor {
-    return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
+    return this.rewardModel.predict(conditionedState) as tf.Tensor
   }
 
   public async save (path: string): Promise<void> {
@@ -221,7 +225,7 @@ export class ResNet implements Model {
   }
 
   // ResNet - put all together
-  private makeResNet (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+  private makeResNet (name: string, inputShape: number[], outputShape: number[]): tf.LayersModel {
     const input = tf.input({
       shape: inputShape,
       name: `${name}_in`
@@ -243,13 +247,14 @@ export class ResNet implements Model {
     }).apply(filter1norm)
     const dense = tf.layers.dense({
       name: `${name}_de`,
-      units: outputSize,
+      units: outputShape.reduce((p, v) => p * v, 1),
       kernelInitializer: 'glorotNormal',
       activation: 'relu'
     }).apply(flatten) as tf.SymbolicTensor
+    const reshapeLayer = tf.layers.reshape({ targetShape: outputShape }).apply(dense) as tf.SymbolicTensor
     return tf.model({
       inputs: input,
-      outputs: dense
+      outputs: reshapeLayer
     })
   }
 

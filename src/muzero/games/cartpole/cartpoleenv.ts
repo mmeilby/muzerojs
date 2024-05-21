@@ -24,13 +24,17 @@ export class MuZeroCartpole implements Environment {
    *  boardSize number of board positions for this game
    */
   config (): Config {
-    const conf = new Config(this.actionSpace, new MuZeroCartpoleState({
-      x: 0,
-      xDot: 0,
-      theta: 0,
-      thetaDot: 0,
-      reward: 0
-    }, []).observationShape)
+    const conf = new Config(
+      this.actionSpace,
+      new MuZeroCartpoleState({
+        x: 0,
+        xDot: 0,
+        theta: 0,
+        thetaDot: 0,
+        reward: 0
+      }, []).observationShape,
+      new MuZeroCartpoleAction(0).actionShape
+    )
     conf.maxMoves = 500
     conf.decayingParam = 0.997
     conf.rootDirichletAlpha = 0.25

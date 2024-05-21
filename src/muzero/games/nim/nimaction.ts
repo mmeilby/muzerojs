@@ -14,8 +14,8 @@ export class MuZeroNimAction implements Action {
   }
 
   get action (): tf.Tensor {
-    const heap = this.actionToHeap()
-    const nimming = this.actionToNimming()
+    const heap = this.heap
+    const nimming = this.nimming
     const board: number[][][] = []
     for (let i = 0; i < config.heaps; i++) {
       const pins: number[][] = []
@@ -27,13 +27,19 @@ export class MuZeroNimAction implements Action {
     return tf.tensor3d(board)
   }
 
+  public get heap (): number {
+    return this.rHeap(this.id)
+  }
+
+  public get nimming (): number {
+    return this.rNimming(this.id) + 1
+  }
+
   public toString (): string {
     if (this.id < 0) {
       return 'H?-?'
     }
-    const heap = this.actionToHeap()
-    const nimmingSize = this.actionToNimming()
-    return `H${heap + 1}-${nimmingSize + 1}`
+    return `H${this.heap + 1}-${this.nimming}`
   }
 
   public set (action: string): MuZeroNimAction {
@@ -62,19 +68,11 @@ export class MuZeroNimAction implements Action {
     return this
   }
 
-  public actionToHeap (): number {
-    return this.reduce(this.id)
+  private rHeap (n: number, level = 0): number {
+    return n >= util.heapMap[level] ? this.rHeap(n - util.heapMap[level], level + 1) : level
   }
 
-  public actionToNimming (): number {
-    return this.nimming(this.id)
-  }
-
-  private reduce (n: number, level = 0): number {
-    return n >= util.heapMap[level] ? this.reduce(n - util.heapMap[level], level + 1) : level
-  }
-
-  private nimming (n: number, level = 0): number {
-    return n >= util.heapMap[level] ? this.nimming(n - util.heapMap[level], level + 1) : n
+  private rNimming (n: number, level = 0): number {
+    return n >= util.heapMap[level] ? this.rNimming(n - util.heapMap[level], level + 1) : n
   }
 }

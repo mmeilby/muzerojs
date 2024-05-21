@@ -2,8 +2,8 @@ import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from '../games/core/environment'
 import { type Target } from '../replaybuffer/target'
 import { type Node } from './mctsnode'
-import { State } from '../games/core/state'
-import { Action } from '../games/core/action'
+import { type State } from '../games/core/state'
+import { type Action } from '../games/core/action'
 
 interface GameHistoryObject {
   actionHistory: number[]
@@ -159,15 +159,17 @@ export class GameHistory {
     return this.environment.toString(this._state)
   }
 
-  public deserialize (stream: string): Array<GameHistory> {
-    const games: Array<GameHistory> = []
+  public deserialize (stream: string): GameHistory[] {
+    const games: GameHistory[] = []
     const objects: GameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
       const game = new GameHistory(this.environment)
       object.actionHistory.forEach(oAction => {
-        const action = game.legalActions().find(a => a.id === oAction)
-        if (action !== undefined) {
+        const action = this.environment.actionRange().at(oAction)
+        if (action !== undefined && action.id === oAction) {
           game.apply(action)
+        } else {
+          throw new Error(`Can't parse stream: ${stream}. Invalid action ID: ${oAction}`)
         }
       })
       object.rootValues.forEach(r => game.rootValues.push(r))

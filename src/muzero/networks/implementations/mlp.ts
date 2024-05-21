@@ -5,21 +5,20 @@ import { type Model } from '../model'
 // const debug = debugFactory('muzero:network:debug')
 
 export class MlpNet implements Model {
+  // Size of hidden layer
+  public readonly hiddenLayerSize: number[]
   // Length of the hidden state tensors (number of outputs for g.s and h.s)
   protected readonly hxSize: number
   // Length of the reward representation tensors (number of bins)
   protected readonly rewardSupportSize: number
   // Length of the value representation tensors (number of bins)
   protected readonly valueSupportSize: number
-  // Size of hidden layer
-  public readonly hiddenLayerSize: number[]
 
   // Scale the value loss to avoid over fitting of the value function,
-  // paper recommends 0.25 (See paper appendix Reanalyze)
-  private readonly valueScale: number
   // L2 weights regularization
   protected readonly weightDecay: number
-
+  // paper recommends 0.25 (See paper appendix Reanalyze)
+  private readonly valueScale: number
   private readonly logDir: string
 
   private representationModel: tf.Sequential = tf.sequential()
@@ -29,7 +28,7 @@ export class MlpNet implements Model {
   private rewardModel: tf.Sequential = tf.sequential()
 
   constructor (
-    private readonly inputSize: number[],
+    private readonly inputShape: number[],
     // Length of the action tensors
     private readonly actionSpaceN: number,
     hiddenLayerSizes: number | number[] = [16, 16]
@@ -49,11 +48,11 @@ export class MlpNet implements Model {
 
   public makeModel (): void {
     const repModel = tf.sequential()
-    const inputShape = [this.inputSize.reduce((m, v) => m * v, 1)]
-    this.makeHiddenLayer(repModel, 'representation_state_hidden', inputShape)
+    const inputSize = this.inputShape.reduce((m, v) => m * v, 1)
+    this.makeHiddenLayer(repModel, 'representation_state_hidden', [inputSize])
     repModel.add(tf.layers.dense({
       name: 'representation_state_output',
-      units: this.hxSize,
+      units: inputSize,
       activation: 'tanh',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
@@ -61,7 +60,7 @@ export class MlpNet implements Model {
     }))
     this.representationModel = repModel
     const valueModel = tf.sequential()
-    this.makeHiddenLayer(valueModel, 'prediction_value_hidden', [this.hxSize])
+    this.makeHiddenLayer(valueModel, 'prediction_value_hidden', [inputSize])
     valueModel.add(tf.layers.dense({
       name: 'prediction_value_output',
       units: 1,
@@ -74,7 +73,7 @@ export class MlpNet implements Model {
     }))
     this.valueModel = valueModel
     const policyModel = tf.sequential()
-    this.makeHiddenLayer(policyModel, 'prediction_policy_hidden', [this.hxSize])
+    this.makeHiddenLayer(policyModel, 'prediction_policy_hidden', [inputSize])
     policyModel.add(tf.layers.dense({
       name: 'prediction_policy_output',
       units: this.actionSpaceN,
@@ -85,7 +84,8 @@ export class MlpNet implements Model {
     }))
     this.policyModel = policyModel
     const rewardModel = tf.sequential()
-    this.makeHiddenLayer(rewardModel, 'dynamics_reward_hidden', [this.hxSize + this.actionSpaceN])
+    // TODO: Must have the actionShape available here!
+    this.makeHiddenLayer(rewardModel, 'dynamics_reward_hidden', [inputSize + inputSize])
     rewardModel.add(tf.layers.dense({
       name: 'dynamics_reward_output',
       units: 1,
@@ -98,31 +98,16 @@ export class MlpNet implements Model {
     }))
     this.rewardModel = rewardModel
     const dynamicsModel = tf.sequential()
-    this.makeHiddenLayer(dynamicsModel, 'dynamics_state_hidden', [this.hxSize + this.actionSpaceN])
+    this.makeHiddenLayer(dynamicsModel, 'dynamics_state_hidden', [inputSize + inputSize])
     dynamicsModel.add(tf.layers.dense({
       name: 'dynamics_state_output',
-      units: this.hxSize,
+      units: inputSize,
       activation: 'tanh',
       kernelInitializer: 'glorotUniform',
       kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
       useBias: false
     }))
     this.dynamicsModel = dynamicsModel
-  }
-
-  private makeHiddenLayer (model: tf.Sequential, name: string, inputShape: number[]): void {
-    this.hiddenLayerSize.forEach((units, i) => {
-      model.add(tf.layers.dense({
-        name: `${name}${i + 1}`,
-        // `inputShape` is required only for the first layer.
-        inputShape: i === 0 ? inputShape : undefined,
-        units,
-        activation: 'relu',
-        kernelInitializer: 'glorotUniform',
-        kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
-        useBias: false
-      }))
-    })
   }
 
   /**
@@ -135,23 +120,29 @@ export class MlpNet implements Model {
   public representation (observation: tf.Tensor): tf.Tensor {
     // Get the number of observations to be processed and flatten preserving the batch size
     const batchSize = observation.shape[0]
-    return this.representationModel.predict(observation.reshape([batchSize, -1])) as tf.Tensor
+    const hiddenState = this.representationModel.predict(observation.reshape([batchSize, -1])) as tf.Tensor
+    return hiddenState.reshape([batchSize, ...this.inputShape])
   }
 
   public value (state: tf.Tensor): tf.Tensor {
-    return this.valueModel.predict(state) as tf.Tensor
+    const batchSize = state.shape[0]
+    return this.valueModel.predict(state.reshape([batchSize, -1])) as tf.Tensor
   }
 
   public policy (state: tf.Tensor): tf.Tensor {
-    return this.policyModel.predict(state) as tf.Tensor
+    const batchSize = state.shape[0]
+    return this.policyModel.predict(state.reshape([batchSize, -1])) as tf.Tensor
   }
 
   public dynamics (conditionedState: tf.Tensor): tf.Tensor {
-    return this.dynamicsModel.predict(conditionedState) as tf.Tensor
+    const batchSize = conditionedState.shape[0]
+    const hiddenState = this.dynamicsModel.predict(conditionedState.reshape([batchSize, -1])) as tf.Tensor
+    return hiddenState.reshape([batchSize, ...this.inputShape])
   }
 
   public reward (conditionedState: tf.Tensor): tf.Tensor {
-    return this.rewardModel.predict(conditionedState) as tf.Tensor
+    const batchSize = conditionedState.shape[0]
+    return this.rewardModel.predict(conditionedState.reshape([batchSize, -1])) as tf.Tensor
   }
 
   /**
@@ -388,5 +379,20 @@ export class MlpNet implements Model {
     disposed += this.dynamicsModel.dispose().numDisposedVariables
     disposed += this.rewardModel.dispose().numDisposedVariables
     return disposed
+  }
+
+  private makeHiddenLayer (model: tf.Sequential, name: string, inputShape: number[]): void {
+    this.hiddenLayerSize.forEach((units, i) => {
+      model.add(tf.layers.dense({
+        name: `${name}${i + 1}`,
+        // `inputShape` is required only for the first layer.
+        inputShape: i === 0 ? inputShape : undefined,
+        units,
+        activation: 'relu',
+        kernelInitializer: 'glorotUniform',
+        kernelRegularizer: tf.regularizers.l2({ l2: this.weightDecay }),
+        useBias: false
+      }))
+    })
   }
 }

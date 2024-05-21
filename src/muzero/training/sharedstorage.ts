@@ -6,7 +6,7 @@ import { UniformNetwork } from '../networks/implementations/uniform'
 import { EventEmitter } from 'events'
 import { CoreNet } from '../networks/implementations/core'
 import { ResNet } from '../networks/implementations/conv'
-import fs from "fs";
+import fs from 'fs'
 
 const debug = debugFactory('muzero:sharedstorage:module')
 
@@ -14,7 +14,7 @@ export class SharedStorage {
   public networkCount: number
   private readonly path: string
   private readonly latestNetwork_: Network
-  private readonly maxNetworks: number
+  //  private readonly maxNetworks: number
   private readonly updatedNetworkEvent: EventEmitter
 
   /**
@@ -29,13 +29,13 @@ export class SharedStorage {
     network?: Network
   ) {
     this.latestNetwork_ = network ?? this.initialize()
-    this.maxNetworks = 2
+    //    this.maxNetworks = 2
     this.updatedNetworkEvent = new EventEmitter()
-    this.networkCount = network ? 0 : -1
+    this.networkCount = (network != null) ? 0 : -1
     this.path = 'data/'.concat(this.config.savedNetworkPath, '/')
     // Create path if needed
-    fs.stat(this.path, (err, stats) => {
-      if (err) {
+    fs.stat(this.path, (err, _stats) => {
+      if (err != null) {
         fs.mkdir(this.path, () => {
           debug(`Created network data path: ${this.path}`)
         })
@@ -44,7 +44,12 @@ export class SharedStorage {
   }
 
   public initialize (): Network {
-    const model = new ResNet(this.config.observationSize, this.config.actionSpace)
+    const model = new ResNet(
+      this.config.observationSize,
+      this.config.actionSpace,
+      this.config.observationSize,
+      this.config.actionShape
+    )
     return new CoreNet(model, this.config.lrInit, this.config.numUnrollSteps)
   }
 
@@ -59,7 +64,7 @@ export class SharedStorage {
   }
 
   public async waitForUpdate (): Promise<Network> {
-    const promise = new Promise<Network>((resolve, _) => {
+    const promise = new Promise<Network>((resolve, _reject) => {
       this.updatedNetworkEvent.once('update_event', () => {
         resolve(this.latestNetwork())
       })

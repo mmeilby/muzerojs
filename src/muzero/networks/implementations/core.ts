@@ -6,7 +6,7 @@ import { type Model } from '../model'
 
 import debugFactory from 'debug'
 import { NetworkState } from '../networkstate'
-import { Action } from '../../games/core/action'
+import { type Action } from '../../games/core/action'
 
 const debug = debugFactory('muzero:network:core')
 
@@ -71,7 +71,7 @@ export class CoreNet implements Network {
    * g(s,a)->s´,r
    * f(s´)->p,v
    * ```
-   * @param hiddenState
+   * @param state
    * @param action
    */
   public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
@@ -212,21 +212,15 @@ export class CoreNet implements Network {
       reward: tno.tfReward,
       policy: tno.tfPolicy
     }]
-    /*
-    const stackedActions = sample.map(batch => tf.stack(batch.tfActions))
-    const actions = tf.unstack(tf.stack(stackedActions, 1))
-     */
-    const stackedActions = sample.map(batch => batch.actions)
+    // Transpose the actions to align all batch actions for the same unroll step
+    // If actions are missing in a batch repeat the last action to fill up to number of unrolled steps
     const actions: Action[][] = []
-    stackedActions.forEach((batchActions, j) => {
-      batchActions.forEach((a, i) => {
-        if (j === 0) {
-          actions[i] = [a]
-        } else {
-          actions[i].push(a)
-        }
-      })
-    })
+    for (let step = 0; step < this.numUnrollSteps; step++) {
+      actions[step] = []
+      for (let batchId = 0; batchId < sample.length; batchId++) {
+        actions[step][batchId] = sample[batchId].actions[step] ?? sample[batchId].actions.at(-1)
+      }
+    }
     let state = tno.tfHiddenState
     for (const batchActions of actions) {
       const tno = this.recurrentInference(new NetworkState(state), batchActions)

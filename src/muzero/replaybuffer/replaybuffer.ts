@@ -6,7 +6,6 @@ import fs from 'fs'
 import debugFactory from 'debug'
 import { type Environment } from '../games/core/environment'
 import { type Config } from '../games/core/config'
-import * as tf from '@tensorflow/tfjs-node-gpu'
 
 const debug = debugFactory('muzero:replaybuffer:module')
 
@@ -106,13 +105,8 @@ export class ReplayBuffer {
       const gameHistory = g.gameHistory
       const position = this.samplePosition(gameHistory, forceUniform).position
       const actionHistory = gameHistory.actionHistory.slice(position, position + numUnrollSteps)
-      const tfActionHistory = actionHistory.map(action => action.action)
-      for (let c = actionHistory.length; c < numUnrollSteps; c++) {
-        // TODO: Move actionShape to state class
-        tfActionHistory.push(tf.zeros(gameHistory.state.observationShape))
-      }
       const target = gameHistory.makeTarget(position, numUnrollSteps, tdSteps, this.config.discount)
-      return new Batch(gameHistory.makeImage(position), actionHistory, tfActionHistory, target)
+      return new Batch(gameHistory.makeImage(position), actionHistory, target)
     })
   }
 
@@ -120,7 +114,7 @@ export class ReplayBuffer {
     environment: Environment
   ): void {
     try {
-      const json = fs.readFileSync('./data/games.json', {encoding: 'utf8'})
+      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
       if (json !== null) {
         this.buffer = new GameHistory(environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)

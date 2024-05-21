@@ -10,7 +10,7 @@ const debug = debugFactory('muzero:muzero:debug')
 async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const conf = factory.config()
-  conf.trainingSteps = 256
+  conf.trainingSteps = 2000
   conf.batchSize = 16
   conf.replayBufferSize = 256
   conf.checkpointInterval = 25
@@ -19,7 +19,7 @@ async function run (): Promise<void> {
   await sharedStorage.loadNetwork()
   const selfPlay = new SelfPlay(conf, factory)
   const train = new Training(conf)
-//  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
+  //  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
   //  selfPlay.buildTestHistory(replayBuffer)
   //  replayBuffer.loadSavedGames(factory, model)
   await Promise.all([
