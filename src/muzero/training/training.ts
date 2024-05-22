@@ -13,7 +13,8 @@ export class Training {
   private readonly losses: number[] = []
 
   constructor (
-    private readonly config: Config
+    private readonly config: Config,
+    private readonly logDir = './logs/muzero'
   ) {
   }
 
@@ -24,16 +25,30 @@ export class Training {
     storage.latestNetwork().copyWeights(network)
     debug('Training initiated')
     debug(`Training steps: ${this.config.trainingSteps}`)
+    //  Use:
+    //    pip install tensorboard  # Unless you've already installed it.
+    //    C:\Users\Morten\AppData\Local\Programs\Python\Python39\Scripts\tensorboard.exe --logdir ./logs/muzero
+    const tensorBoard = tf.node.tensorBoard(this.logDir, {
+      updateFreq: 'batch',
+      histogramFreq: 0
+    })
+    tensorBoard.params = {
+      steps: this.config.trainingSteps,
+      batchSize: this.config.batchSize
+    }
+    await tensorBoard.onTrainBegin()
     for (let step = 1; step <= this.config.trainingSteps; step++) {
       if (step % this.config.checkpointInterval === 0) {
         await storage.saveNetwork(step, network)
       }
-      tf.tidy(() => {
+      await tensorBoard.onBatchBegin(step)
+      const [loss, accuracy] = tf.tidy(() => {
         const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps)
-        const [loss, accuracy] = network.trainInference(batchSamples)
-        debug(`Mean loss: step #${step} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
-        this.losses.push(loss)
+        return network.trainInference(batchSamples)
       })
+      this.losses.push(loss)
+      debug(`Mean loss: step #${step} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
+      await tensorBoard.onBatchEnd(step, {val_loss: loss, val_accuracy: accuracy})
       this.trainingStep++
       if (info.enabled) {
         info(`--- Performance: ${replayBuffer.statistics().toFixed(1)}%`)
@@ -42,6 +57,8 @@ export class Training {
       }
       await tf.nextFrame()
     }
+//    tf.node.summaryFileWriter(this.logDir).scalar('loss', history.history.loss[0] as number, ++this.trainingStep)
+    await tensorBoard.onTrainEnd()
     await storage.saveNetwork(this.config.trainingSteps, network)
   }
 

@@ -160,12 +160,13 @@ export class GameHistory {
   }
 
   public deserialize (stream: string): GameHistory[] {
+    const actionRange = this.environment.actionRange()
     const games: GameHistory[] = []
     const objects: GameHistoryObject[] = JSON.parse(stream)
     objects.forEach(object => {
       const game = new GameHistory(this.environment)
       object.actionHistory.forEach(oAction => {
-        const action = this.environment.actionRange().at(oAction)
+        const action = actionRange[oAction]
         if (action !== undefined && action.id === oAction) {
           game.apply(action)
         } else {

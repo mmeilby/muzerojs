@@ -18,6 +18,7 @@ export class ReplayBuffer {
   public numPlayedSteps: number
   public totalSamples: number
   private buffer: GameHistory[]
+  private readonly path: string
 
   /**
    *
@@ -43,6 +44,7 @@ export class ReplayBuffer {
     this.numPlayedGames = 0
     this.numPlayedSteps = 0
     this.totalSamples = 0
+    this.path = 'data/'.concat(this.config.savedNetworkPath, '/')
   }
 
   get totalGames (): number {
@@ -80,8 +82,8 @@ export class ReplayBuffer {
     this.numPlayedGames++
     this.numPlayedSteps += gameHistory.rootValues.length
     this.totalSamples += gameHistory.rootValues.length
-    if (this.numPlayedGames % 25 === 0) {
-      //      this.storeSavedGames()
+    if (this.numPlayedGames % this.config.checkpointInterval === 0) {
+      this.storeSavedGames()
     }
   }
 
@@ -114,7 +116,7 @@ export class ReplayBuffer {
     environment: Environment
   ): void {
     try {
-      const json = fs.readFileSync('./data/games.json', { encoding: 'utf8' })
+      const json = fs.readFileSync(this.path.concat('games.json'), {encoding: 'utf8'})
       if (json !== null) {
         this.buffer = new GameHistory(environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
@@ -128,7 +130,7 @@ export class ReplayBuffer {
 
   public storeSavedGames (): void {
     const stream = JSON.stringify(this.buffer.map(gh => gh.serialize()))
-    fs.writeFileSync('./data/games.json', stream, 'utf8')
+    fs.writeFileSync(this.path.concat('games.json'), stream, 'utf8')
   }
 
   /**

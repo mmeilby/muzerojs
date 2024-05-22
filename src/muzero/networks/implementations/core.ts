@@ -114,95 +114,50 @@ export class CoreNet implements Network {
   }
 
   /**
-   * Get predicted values from the network for the batch
-   * @param batch a game play recorded as observation image for the initial state and the following targets (policy, reward, and value) for each action taken
-   * @returns array of `Prediction` used for measuring how close the network predicts the targets
-   *
-   private calculatePredictions (batch: Batch): Prediction[] {
-   const tno = this.initialInference(new NetworkState(batch.image))
-   const predictions: Prediction[] = [{
-   scale: 1,
-   value: tno.tfValue,
-   reward: tno.tfReward,
-   policy: tno.tfPolicy
-   }]
-   let state = tno.tfHiddenState
-   for (const action of batch.tfActions) {
-   const tno = this.recurrentInference(new NetworkState(state), new NetworkAction(action))
-   predictions.push({
-   scale: 1 / batch.tfActions.length,
-   value: tno.tfValue,
-   reward: tno.tfReward,
-   policy: tno.tfPolicy
-   })
-   // Prepare new state for next game step
-   // Gradient scaling controls the dynamics network training. To prevent training set scale = 0
-   state = this.scaleGradient(tno.tfHiddenState, 0.5)
-   }
-   return predictions
-   }
-
-   /**
    * Measure the total loss for a batch
    * ```
    * Note: for value loss use MSE in board games, cross entropy between categorical values in Atari
    * ```
-   * @param predictions array of predictions as tensors for this batch
-   * @param targets array of targets as tensors for this batch
+   * @param samples
    * @returns `LossLog` record containing total loss and individual loss parts averaged for the batch
-   *
-   private measureLoss (predictions: Prediction[], targets: Target[]): LossLog {
-   const batchTotalLoss: LossLog = new LossLog()
-   for (let i = 0; i < predictions.length; i++) {
-   const prediction = predictions[i]
-   const target = targets[i]
-   const lossV = tf.losses.meanSquaredError(target.value, prediction.value).asScalar()
-   batchTotalLoss.value += lossV.bufferSync().get(0)
-   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV.mul(this.valueScale), prediction.scale))
-   if (i > 0) {
-   const lossR = tf.losses.meanSquaredError(target.reward, prediction.reward).asScalar()
-   batchTotalLoss.reward += lossR.bufferSync().get(0)
-   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
-   }
-   if ((target.policy.shape.at(1) ?? 0) > 0) {
-   const lossP = tf.losses.softmaxCrossEntropy(target.policy, prediction.policy).asScalar()
-   batchTotalLoss.policy += lossP.bufferSync().get(0)
-   batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
-   }
-   }
-   batchTotalLoss.value /= predictions.length
-   batchTotalLoss.reward /= predictions.length
-   batchTotalLoss.policy /= predictions.length
-   return batchTotalLoss
-   }
    */
   private calculateLoss (samples: Batch[]): tf.Scalar {
-    const batchLosses: LossLog = this.calculateSampleLoss(samples)
-    /*
-            for (const batch of samples) {
-                const predictions = this.calculatePredictions(batch)
-                const lossAndGradients = this.measureLoss(predictions, batch.targets)
-                batchLosses.total = batchLosses.total.add(lossAndGradients.total)
-                if (debug.enabled) {
-                    const lossV = lossAndGradients.value.toFixed(3)
-                    const lossR = lossAndGradients.reward.toFixed(3)
-                    const lossP = lossAndGradients.policy.toFixed(3)
-                    const total = lossAndGradients.total.bufferSync().get(0).toFixed(3)
-                    debug(`Game overall loss: V=${lossV}, R=${lossR}, P=${lossP} T=${total}`)
-                }
-                lossAndGradients.total.dispose()
-            }
-
-     */
-    batchLosses.total = batchLosses.total.div(samples.length)
-    if (debug.enabled) {
-      debug(`Sample set loss details: V=${batchLosses.value.toFixed(3)} R=${batchLosses.reward.toFixed(3)} P=${batchLosses.policy.toFixed(3)}`)
-      debug(`Sample set mean loss: T=${batchLosses.total.bufferSync().get(0).toFixed(3)}`)
+    const predictions: Prediction[] = this.preparePredictions(samples)
+    const labels: Prediction[] = this.prepareLabels(samples, predictions)
+    const batchTotalLoss: LossLog = new LossLog()
+    for (let i = 0; i < predictions.length; i++) {
+      const prediction = predictions[i]
+      const label = labels[i]
+      const lossV = tf.losses.meanSquaredError(label.value, prediction.value).asScalar()
+      batchTotalLoss.value += lossV.bufferSync().get(0)
+      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV.mul(this.valueScale), prediction.scale))
+      if (i > 0) {
+        const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward).asScalar()
+        batchTotalLoss.reward += lossR.bufferSync().get(0)
+        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
+      }
+      const lossP = tf.losses.softmaxCrossEntropy(label.policy, prediction.policy).asScalar()
+      const acc = tf.metrics.categoricalAccuracy(label.policy, prediction.policy)
+      batchTotalLoss.policy += lossP.bufferSync().get(0)
+      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
     }
-    // update weights
-    return batchLosses.total.asScalar()
+    batchTotalLoss.value /= predictions.length
+    batchTotalLoss.reward /= predictions.length
+    batchTotalLoss.policy /= predictions.length
+    batchTotalLoss.total = batchTotalLoss.total.div(samples.length)
+    if (debug.enabled) {
+      debug(`Sample set loss details: V=${batchTotalLoss.value.toFixed(3)} R=${batchTotalLoss.reward.toFixed(3)} P=${batchTotalLoss.policy.toFixed(3)}`)
+      debug(`Sample set mean loss: T=${batchTotalLoss.total.bufferSync().get(0).toFixed(3)}`)
+    }
+    return batchTotalLoss.total.asScalar()
   }
 
+  /**
+   * Get predicted values from the network for the batch
+   * @param sample a game play recorded as observation image for the initial state and the following
+   * targets (policy, reward, and value) for each action taken
+   * @returns array of `Prediction` used for measuring how close the network predicts the targets
+   */
   private preparePredictions (sample: Batch[]): Prediction[] {
     const images = tf.concat(sample.map(batch => batch.image))
     const tno = this.initialInference(new NetworkState(images))
@@ -237,6 +192,12 @@ export class CoreNet implements Network {
     return predictions
   }
 
+  /**
+   * Prepare the target values (labels) for the samples
+   * @param sample The samples containing the target values for each batch
+   * @param predictions Array of predictions as tensors for the samples
+   * @returns Array of `Prediction` records containing the target values (labels) for the training
+   */
   private prepareLabels (sample: Batch[], predictions: Prediction[]): Prediction[] {
     const labels: Prediction[] = []
     for (let c = 0; c <= this.numUnrollSteps; c++) {
@@ -249,31 +210,6 @@ export class CoreNet implements Network {
       })
     }
     return labels
-  }
-
-  private calculateSampleLoss (sample: Batch[]): LossLog {
-    const predictions: Prediction[] = this.preparePredictions(sample)
-    const labels: Prediction[] = this.prepareLabels(sample, predictions)
-    const batchTotalLoss: LossLog = new LossLog()
-    for (let i = 0; i < predictions.length; i++) {
-      const prediction = predictions[i]
-      const label = labels[i]
-      const lossV = tf.losses.meanSquaredError(label.value, prediction.value).asScalar()
-      batchTotalLoss.value += lossV.bufferSync().get(0)
-      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossV.mul(this.valueScale), prediction.scale))
-      if (i > 0) {
-        const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward).asScalar()
-        batchTotalLoss.reward += lossR.bufferSync().get(0)
-        batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossR, prediction.scale))
-      }
-      const lossP = tf.losses.softmaxCrossEntropy(label.policy, prediction.policy).asScalar()
-      batchTotalLoss.policy += lossP.bufferSync().get(0)
-      batchTotalLoss.total = batchTotalLoss.total.add(this.scaleGradient(lossP, prediction.scale))
-    }
-    batchTotalLoss.value /= predictions.length
-    batchTotalLoss.reward /= predictions.length
-    batchTotalLoss.policy /= predictions.length
-    return batchTotalLoss
   }
 
   /**

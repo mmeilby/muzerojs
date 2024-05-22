@@ -144,7 +144,8 @@ export class SelfPlay {
       tf.tidy(() => {
         // define the probability for each action based on popularity (visits)
         const probs = tf.tensor1d(rootNode.children.map(child => child.visits))
-        // select the most popular action
+        // select the most popular action - note that for some reason we need to ask for
+        // two samples as the first one always is fixed
         action = tf.multinomial(probs, 2).bufferSync().get(1)
       })
     }

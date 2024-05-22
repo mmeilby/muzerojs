@@ -15,13 +15,11 @@ async function run (): Promise<void> {
   conf.replayBufferSize = 256
   conf.checkpointInterval = 25
   const replayBuffer = new ReplayBuffer(conf)
+  replayBuffer.loadSavedGames(factory)
   const sharedStorage = new SharedStorage(conf)
   await sharedStorage.loadNetwork()
   const selfPlay = new SelfPlay(conf, factory)
   const train = new Training(conf)
-  //  debug(`Tensor usage baseline: ${tf.memory().numTensors}`)
-  //  selfPlay.buildTestHistory(replayBuffer)
-  //  replayBuffer.loadSavedGames(factory, model)
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),
     train.trainNetwork(sharedStorage, replayBuffer),
