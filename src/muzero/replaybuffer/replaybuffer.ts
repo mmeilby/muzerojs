@@ -44,7 +44,15 @@ export class ReplayBuffer {
     this.numPlayedGames = 0
     this.numPlayedSteps = 0
     this.totalSamples = 0
-    this.path = 'data/'.concat(this.config.savedNetworkPath, '/')
+    this.path = `data/${this.config.savedNetworkPath}/`
+    // Create path if needed
+    fs.stat(this.path, (err, _stats) => {
+      if (err != null) {
+        fs.mkdir(this.path, () => {
+          debug(`Created game data path: ${this.path}`)
+        })
+      }
+    })
   }
 
   get totalGames (): number {
@@ -116,7 +124,7 @@ export class ReplayBuffer {
     environment: Environment
   ): void {
     try {
-      const json = fs.readFileSync(this.path.concat('games.json'), {encoding: 'utf8'})
+      const json = fs.readFileSync(this.path.concat('games.json'), { encoding: 'utf8' })
       if (json !== null) {
         this.buffer = new GameHistory(environment).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)

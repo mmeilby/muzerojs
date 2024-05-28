@@ -7,12 +7,13 @@ import * as tf from '@tensorflow/tfjs-node-gpu'
 import debugFactory from 'debug'
 import { type Config } from '../games/core/config'
 import { type Network } from '../networks/nnet'
-import { Node } from './mctsnode'
+import { ChildNode, type Node, RootNode } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
 import { type State } from '../games/core/state'
 import { type Action } from '../games/core/action'
 import { NetworkState } from '../networks/networkstate'
 
+const perf = debugFactory('muzero:selfplay:perf')
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
 const debug = debugFactory('muzero:selfplay:debug')
@@ -69,15 +70,10 @@ export class SelfPlay {
   }
 
   public async performance (storage: SharedStorage): Promise<void> {
-    let useBaseline = tf.memory().numTensors
     while (storage.networkCount < this.config.trainingSteps) {
       const certar = this.testNetwork(storage.latestNetwork())
       const certainty = certar.reduce((m, c) => m + c, 0) / certar.length
-      log(`--- CERTAINTY: avg = ${certainty.toFixed(2)} - ${JSON.stringify(certar)}`)
-      if (tf.memory().numTensors - useBaseline > 0) {
-        console.warn(`TENSOR USAGE IS GROWING: ${tf.memory().numTensors - useBaseline} (total: ${tf.memory().numTensors})`)
-        useBaseline = tf.memory().numTensors
-      }
+      perf(`--- CERTAINTY(${storage.networkCount}): avg = ${certainty.toFixed(2)} - ${JSON.stringify(certar)}`)
       // Wait for the trained network version based on the game plays just added to the replay buffer
       await storage.waitForUpdate()
     }
@@ -138,7 +134,7 @@ export class SelfPlay {
     return i
   }
 
-  protected selectAction (rootNode: Node): Action {
+  protected selectAction (rootNode: RootNode): Action {
     let action = 0
     if (rootNode.children.length > 1) {
       tf.tidy(() => {
@@ -149,7 +145,7 @@ export class SelfPlay {
         action = tf.multinomial(probs, 2).bufferSync().get(1)
       })
     }
-    return rootNode.children[action].action as Action
+    return rootNode.children[action].action
   }
 
   /**
@@ -161,9 +157,9 @@ export class SelfPlay {
    * @param network
    * @private
    */
-  protected runMCTS (gameHistory: GameHistory, network: Network): Node {
+  protected runMCTS (gameHistory: GameHistory, network: Network): RootNode {
     const minMaxStats = new Normalizer()
-    const rootNode: Node = new Node(gameHistory.state.player, this.env.legalActions(gameHistory.state))
+    const rootNode: Node = new RootNode(gameHistory.state.player, this.env.legalActions(gameHistory.state))
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
@@ -181,19 +177,20 @@ export class SelfPlay {
           let node = rootNode
           const nodePath: Node[] = [rootNode]
           const debugSearchTree: number[] = []
-          while (node.isExpanded() && node.children.length > 0) {
-            node = this.selectChild(node, minMaxStats)
-            nodePath.unshift(node)
+          while (node.isExpanded()) {
+            const selectedNode = this.selectChild(node, minMaxStats)
+            nodePath.unshift(selectedNode)
             if (debug.enabled) {
-              debugSearchTree.push(node.action?.id ?? -1)
+              debugSearchTree.push(selectedNode.action?.id ?? -1)
             }
+            node = selectedNode
           }
-          debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')} value=${node.prior}`)
+          debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')}, node probability=${node.prior.toFixed(2)}`)
           // Inside the search tree we use the dynamics function to obtain the next
           // hidden state given an action and the previous hidden state (obtained from parent node).
           if (nodePath.length > 1) {
             const parent = nodePath[1]
-            if (node.action !== undefined && parent.hiddenState !== undefined) {
+            if (node instanceof ChildNode && parent.hiddenState !== undefined) {
               const networkOutput = network.recurrentInference(parent.hiddenState, [node.action])
               this.expandNode(node, networkOutput)
               // Update node path with predicted value - squeeze to remove batch dimension
@@ -201,7 +198,7 @@ export class SelfPlay {
             } else {
               // This case should not happen - some inconsistency has occurred.
               // Only unexpanded root node does not have action and hidden state defined
-              throw new Error('Recurrent inference: action or hidden state was unexpected undefined')
+              throw new Error('Recurrent inference: hidden state was unexpectedly undefined')
             }
           } else {
             debug('Recurrent inference attempted on a root node')
@@ -228,8 +225,7 @@ export class SelfPlay {
     node.reward = networkOutput.tfReward.squeeze().bufferSync().get(0)
     // save network predicted value - squeeze to remove batch dimension
     const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
-    let action: Action | undefined
-    while ((action = node.possibleActions.shift()) !== undefined) {
+    for (const action of node.possibleActions) {
       const child = node.addChild([...this.actionRange], action)
       child.prior = policy[action.id] ?? 0
     }
@@ -294,23 +290,23 @@ export class SelfPlay {
    * @param minMaxStats
    * @private
    */
-  private selectChild (node: Node, minMaxStats: Normalizer): Node {
+  private selectChild (node: Node, minMaxStats: Normalizer): ChildNode {
     if (node.children.length === 0) {
-      throw new Error(`SelectChild: No children available for selection. Parent action: ${node.action?.id ?? -1}`)
+      throw new Error('SelectChild: No children available for selection.')
     }
     if (node.children.length === 1) {
       return node.children[0]
     }
-    const ucbTable = node.children.map(child => {
-      return {
-        node: child,
-        ucb: this.ucbScore(node, child, minMaxStats)
+    const ucbTable = node.children.map(child => this.ucbScore(node, child, minMaxStats))
+    let bestNode = 0
+    let bestUCB = ucbTable[bestNode]
+    ucbTable.forEach((ucb, index: number) => {
+      if (bestUCB < ucb) {
+        bestNode = index
+        bestUCB = ucb
       }
     })
-    const bestUCB = ucbTable.reduce((best, c) => {
-      return best.ucb < c.ucb ? c : best
-    })
-    return bestUCB.node
+    return node.children[bestNode]
   }
 
   /**
@@ -337,7 +333,7 @@ export class SelfPlay {
    * @param exploit
    * @private
    */
-  private ucbScore (parent: Node, child: Node, minMaxStats: Normalizer, exploit = false): number {
+  private ucbScore (parent: Node, child: ChildNode, minMaxStats: Normalizer, exploit = false): number {
     if (exploit) {
       // For exploitation only we simply measure the number of visits
       // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
@@ -378,7 +374,7 @@ export class SelfPlay {
 
   // At the start of each search, we add dirichlet noise to the prior of the root
   // to encourage the search to explore new actions.
-  private addExplorationNoise (node: Node): void {
+  private addExplorationNoise (node: RootNode): void {
     if (this.config.rootExplorationFraction > 0) {
       // make normalized dirichlet noise vector
       const noise = tf.tidy(() => {
@@ -391,9 +387,5 @@ export class SelfPlay {
         child.prior = child.prior * (1 - frac) + noise[i] * frac
       })
     }
-  }
-
-  private policyTransform (policy: number): tf.Tensor {
-    return tf.oneHot(tf.tensor1d([policy], 'int32'), this.config.actionSpace, 1, 0, 'float32')
   }
 }

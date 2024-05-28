@@ -4,7 +4,7 @@ import { ReplayBuffer } from '../../muzero/replaybuffer/replaybuffer'
 import { SelfPlay } from '../../muzero/selfplay/selfplay'
 import { MuZeroNim } from '../../muzero/games/nim/nim'
 import { MockedNetwork } from '../../muzero/networks/implementations/mocked'
-import { Node } from '../../muzero/selfplay/mctsnode'
+import { ChildNode, type Node, RootNode } from '../../muzero/selfplay/mctsnode'
 import { GameHistory } from '../../muzero/selfplay/gamehistory'
 import { MuZeroNimUtil } from '../../muzero/games/nim/nimutil'
 import debugFactory from 'debug'
@@ -17,7 +17,7 @@ const debug = debugFactory('muzero:unit:debug')
 
 class SelfPlayTest extends SelfPlay {
   constructor (
-    private readonly conf: Config,
+    conf: Config,
     private readonly fact: Environment
   ) {
     super(conf, fact)
@@ -29,7 +29,7 @@ class SelfPlayTest extends SelfPlay {
    * @param visits
    */
   public testSelectAction (visits: number[]): number {
-    const root = new Node(1, [])
+    const root = new RootNode(1, [])
     visits.forEach((v, i) => {
       const child = root.addChild([], new MuZeroNimAction(i))
       child.visits = v
@@ -37,19 +37,19 @@ class SelfPlayTest extends SelfPlay {
     return this.selectAction(root).id
   }
 
-  public testRunMCTS (gameHistory: GameHistory, network: MockedNetwork): Node {
+  public testRunMCTS (gameHistory: GameHistory, network: MockedNetwork): RootNode {
     return this.runMCTS(gameHistory, network)
   }
 
-  public testExpandNode (gameHistory: GameHistory, network: MockedNetwork): Node {
-    const root = new Node(gameHistory.state.player, this.fact.legalActions(gameHistory.state))
+  public testExpandNode (gameHistory: GameHistory, network: MockedNetwork): RootNode {
+    const root = new RootNode(gameHistory.state.player, this.fact.legalActions(gameHistory.state))
     const no = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
     this.expandNode(root, no)
     return root
   }
 
   public debugChildren (node: Node, index = 0): void {
-    debug(`${'.'.repeat(index)} ${node.visits} P${Math.round(node.prior * 100) / 100} V${Math.round(node.value() * 100) / 100} R${Math.round(node.reward * 100) / 100} ${node.action?.id ?? -1}`)
+    debug(`${'.'.repeat(index)} ${node.visits} P${Math.round(node.prior * 100) / 100} V${Math.round(node.value() * 100) / 100} R${Math.round(node.reward * 100) / 100} ${node instanceof ChildNode ? node.action.id : -1}`)
     node.children.forEach(child => {
       //      if (child.visits > 0) {
       this.debugChildren(child, index + 1)
@@ -103,7 +103,7 @@ describe('Muzero Self Play Unit Test:', () => {
     expect(node.reward).toEqual(reward)
     expect(node.children.length).toEqual(policy.length)
     node.children.forEach(child => {
-      expect(child.prior).toEqual(policy[child.action?.id ?? 0])
+      expect(child.prior).toEqual(policy[child.action.id])
     })
     expect(node.isExpanded()).toBeTruthy()
   })
@@ -115,12 +115,12 @@ describe('Muzero Self Play Unit Test:', () => {
     for (let i = 0; i < 100; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
       const top = selfPlayTest.testSelectAction(root.children.map(c => c.visits))
-      const topAction = root.children[top].action?.id ?? -1
+      const topAction = root.children[top].action.id
       // The golden first moves: H1-1, H3-1, H5-1
       if (topAction === 0 || topAction === 3 || topAction === 10) {
         sucess++
       } else {
-        debug(`Failed first move: ${root.children[top].action?.id ?? -1} ${util.actionToString(root.children[top].action ?? new MuZeroNimAction())} V=${root.children[top].visits}`)
+        debug(`Failed first move: ${root.children[top].action.id} ${util.actionToString(root.children[top].action)} V=${root.children[top].visits}`)
         debug(`Policy: ${JSON.stringify(root.policy(conf.actionSpace))}`)
       }
     }
@@ -140,12 +140,12 @@ describe('Muzero Self Play Unit Test:', () => {
     for (let i = 0; i < 100; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
       const top = selfPlayTest.testSelectAction(root.children.map(c => c.visits))
-      const topAction = root.children[top].action?.id
+      const topAction = root.children[top].action.id
       // The golden move: H2-2
       if (topAction === 2) {
         sucess++
       } else {
-        debug(`Failed second move: ${root.children[top].action?.id ?? -1} ${util.actionToString(root.children[top].action ?? new MuZeroNimAction())} V=${root.children[top].visits}`)
+        debug(`Failed second move: ${root.children[top].action.id} ${util.actionToString(root.children[top].action)} V=${root.children[top].visits}`)
         debug(`Policy: ${JSON.stringify(root.policy(conf.actionSpace))}`)
         debug(`Expert advise: A=${factory.expertActionPolicy(gameHistory.state).toString()}`)
         selfPlayTest.debugChildren(root)
@@ -159,8 +159,7 @@ describe('Muzero Self Play Unit Test:', () => {
     for (let i = 0; i < 20; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
       const top = selfPlayTest.testSelectAction(root.children.map(c => c.visits))
-      const topAction = root.children[top].action ?? new MuZeroNimAction()
-      gameHistory.apply(topAction)
+      gameHistory.apply(root.children[top].action)
       debug(`Best move: ${i}: ${gameHistory.state.toString()} V=${root.children[top].visits}`)
       if (gameHistory.terminal()) {
         debug(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)

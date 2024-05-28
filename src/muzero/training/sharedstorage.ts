@@ -50,7 +50,7 @@ export class SharedStorage {
       this.config.observationSize,
       this.config.actionShape
     )
-    return new CoreNet(model, this.config.lrInit, this.config.numUnrollSteps)
+    return new CoreNet(model, this.config)
   }
 
   public uniformNetwork (): Network {

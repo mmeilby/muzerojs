@@ -1,7 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Environment } from '../games/core/environment'
 import { type Target } from '../replaybuffer/target'
-import { type Node } from './mctsnode'
+import { type RootNode } from './mctsnode'
 import { type State } from '../games/core/state'
 import { type Action } from '../games/core/action'
 
@@ -76,7 +76,7 @@ export class GameHistory {
     return state
   }
 
-  public storeSearchStatistics (rootNode: Node): void {
+  public storeSearchStatistics (rootNode: RootNode): void {
     this.childVisits.push(rootNode.policy(this.actionSpace))
     this.rootValues.push(rootNode.value())
   }

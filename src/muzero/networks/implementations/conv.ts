@@ -56,6 +56,31 @@ export class ResNet implements Model {
     return this.rewardModel.predict(conditionedState) as tf.Tensor
   }
 
+  public async trainRepresentation (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
+    return await this.representationModel.trainOnBatch(labels, targets)
+  }
+
+  public async trainPolicy (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
+    return await this.policyModel.trainOnBatch(labels, targets)
+  }
+
+  public async trainValue (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
+    return await this.valueModel.trainOnBatch(labels, targets)
+  }
+
+  public async trainDynamics (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
+    return await this.dynamicsModel.trainOnBatch(labels, targets)
+  }
+
+  public async trainReward (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
+    return await this.rewardModel.trainOnBatch(labels, targets)
+  }
+
+  public getHiddenStateWeights (): tf.Variable[] {
+    const trainableWeights = this.representationModel.trainableWeights.concat(this.dynamicsModel.trainableWeights)
+    return trainableWeights.map(w => new tf.Variable(w.read(), true, w.name, w.id))
+  }
+
   public async save (path: string): Promise<void> {
     await Promise.all([
       this.representationModel.save(path + 'rp'),

@@ -1,9 +1,7 @@
-import { Action } from '../games/core/action'
-import { NetworkState } from '../networks/networkstate'
+import * as tf from '@tensorflow/tfjs-node-gpu'
+import { type Action } from '../games/core/action'
+import { type NetworkState } from '../networks/networkstate'
 
-/**
- *
- */
 export class Node {
   // The number of times this node has been visited (updated on each back propagation)
   public visits: number
@@ -15,20 +13,19 @@ export class Node {
   public prior: number
   // The hidden state this node corresponds to
   public hiddenState: NetworkState | undefined
-  public readonly children: Node[]
+  // The possible new states discovered for this node (each child relates to one of the possible actions)
+  public readonly children: ChildNode[]
 
   constructor (
     // Player to take the next action for this state
     public readonly player: number,
     // Possible actions allowed for this state
-    public readonly possibleActions: Action[],
-    // Action that caused this state - if node is root no action is defined
-    public readonly action?: Action | undefined
+    public readonly possibleActions: Action[]
   ) {
-    this.reward = 0
     this.visits = 0
-    this.prior = 0
     this.valueSum = 0
+    this.reward = 0
+    this.prior = 0
     this.children = []
   }
 
@@ -44,28 +41,49 @@ export class Node {
   }
 
   policy (actionSpace: number): number[] {
-    const totalVisits = this.children.reduce((sum, child) => sum + child.visits, 0)
-    const policy: number[] = new Array(actionSpace).fill(0)
-    if (totalVisits !== 0) {
-      this.children.forEach(child => {
-        if (child.action !== undefined) {
-          policy[child.action.id] = child.visits / totalVisits
-        }
-      })
-    }
-    return policy
+    return tf.tidy(() => {
+      const indices = tf.tensor1d(this.children.map(child => child.action?.id ?? 0), 'int32')
+      const values = tf.tensor1d(this.children.map(child => child.visits), 'float32')
+      const policy = tf.sparseToDense(indices, values, [actionSpace])
+      return policy.div(policy.sum()).arraySync() as number[]
+    })
   }
 
   public addChild (
     possibleActions: Action[],
     action: Action
-  ): Node {
-    const node = new Node(-this.player, possibleActions, action)
+  ): ChildNode {
+    const node = new ChildNode(-this.player, possibleActions, action)
     this.children.push(node)
     return node
   }
 
   public isExpanded (): boolean {
-    return this.possibleActions.length === 0
+    return this.children.length > 0
   }
+}
+
+/**
+ * ```ChildNode```
+ * The branch level of the Monte Carlo search tree. The child nodes include a mandatory causing action.
+ * */
+export class ChildNode extends Node {
+  constructor (
+    // Player to take the next action for this state
+    player: number,
+    // Possible actions allowed for this state
+    possibleActions: Action[],
+    // Action that caused this child state
+    public readonly action: Action
+  ) {
+    super(player, possibleActions)
+  }
+}
+
+/**
+ * ```RootNode```
+ * The top level of the Monte Carlo search tree. The root node has no causing action.
+ * The root node shares all the attributes from the base class ```Node```
+ */
+export class RootNode extends Node {
 }
