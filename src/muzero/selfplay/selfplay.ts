@@ -83,7 +83,7 @@ export class SelfPlay {
     return tf.tidy(() => {
       const certainty: number[] = []
       const misfit: number[] = []
-      const gameHistory = new GameHistory(this.env)
+      const gameHistory = new GameHistory(this.env, this.config)
       // Play a game from start to end, register target data on the fly for the game history
       while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
         const networkOutput = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
@@ -139,7 +139,7 @@ export class SelfPlay {
     if (rootNode.children.length > 1) {
       tf.tidy(() => {
         // define the probability for each action based on popularity (visits)
-        const probs = tf.tensor1d(rootNode.children.map(child => child.visits))
+        const probs = tf.tensor1d(rootNode.children.map(child => child.visits)).log()
         // select the most popular action - note that for some reason we need to ask for
         // two samples as the first one always is fixed
         action = tf.multinomial(probs, 2).bufferSync().get(1)
@@ -158,7 +158,7 @@ export class SelfPlay {
    * @private
    */
   protected runMCTS (gameHistory: GameHistory, network: Network): RootNode {
-    const minMaxStats = new Normalizer()
+    const minMaxStats = new Normalizer(this.config.normMin, this.config.normMax)
     const rootNode: Node = new RootNode(gameHistory.state.player, this.env.legalActions(gameHistory.state))
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
@@ -241,7 +241,7 @@ export class SelfPlay {
    * @private
    */
   private playGame (network: Network, index: number = 0): GameHistory {
-    const gameHistory = new GameHistory(this.env)
+    const gameHistory = new GameHistory(this.env, this.config)
     // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network)
@@ -266,7 +266,7 @@ export class SelfPlay {
     for (const action of actions) {
       const newState = this.env.step(state, action)
       if (this.env.terminal(newState)) {
-        const gameHistory = new GameHistory(this.env)
+        const gameHistory = new GameHistory(this.env, this.config)
         const rootValue = this.env.reward(newState, newState.player)
         for (const a of actionList.concat(action)) {
           const recommendedAction = this.env.expertAction(gameHistory.state)

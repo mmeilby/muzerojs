@@ -5,6 +5,9 @@ export class Normalizer {
     private min = Infinity,
     private max = -Infinity
   ) {
+    if (this.min < this.max) {
+      this.range = this.max - this.min
+    }
   }
 
   update (value: number): void {

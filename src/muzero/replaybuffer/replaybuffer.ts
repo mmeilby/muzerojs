@@ -1,11 +1,10 @@
 import { GameHistory } from '../selfplay/gamehistory'
 import { Batch } from './batch'
-import { MuZeroGameSample } from './gamesample'
-import { MuZeroPositionSample } from './positionsample'
 import fs from 'fs'
 import debugFactory from 'debug'
 import { type Environment } from '../games/core/environment'
 import { type Config } from '../games/core/config'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
 const debug = debugFactory('muzero:replaybuffer:module')
 
@@ -70,7 +69,7 @@ export class ReplayBuffer {
       // For each game position calculate the absolute deviation from target value. Largest deviation has priority
       const priorities: number[] = []
       gameHistory.rootValues.forEach((rootValue, i) => {
-        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps, this.config.discount)
+        const targetValue = gameHistory.computeTargetValue(i, this.config.tdSteps)
         const priority = Math.pow(Math.abs(rootValue - targetValue), this.config.priorityAlpha)
         priorities.push(priority)
       })
@@ -100,23 +99,22 @@ export class ReplayBuffer {
    * Get a sample batch from the replay buffer (used for training)
    * @param numUnrollSteps Number of game moves to keep for every batch element
    * @param tdSteps Number of steps in the future to take into account for calculating the target value
-   * @param forceUniform Flag to force a uniform selection randomly
    * @return MuZeroBatch[] Sample batch - list of batch elements (batchSize length)
    */
-  public sampleBatch (numUnrollSteps: number, tdSteps: number, forceUniform = false): Batch[] {
-    const gameSamples: MuZeroGameSample[] = []
-    if (this.numPlayedGames > 0) {
-      for (let c = 0; c < (this.config.batchSize); c++) {
-        gameSamples.push(this.sampleGame(forceUniform))
-      }
-    }
-    //    debug('Sample %d games', this.batchSize)
-    return gameSamples.map(g => {
-      const gameHistory = g.gameHistory
-      const position = this.samplePosition(gameHistory, forceUniform).position
-      const actionHistory = gameHistory.actionHistory.slice(position, position + numUnrollSteps)
-      const target = gameHistory.makeTarget(position, numUnrollSteps, tdSteps, this.config.discount)
-      return new Batch(gameHistory.makeImage(position), actionHistory, target)
+
+  /* Pseudocode
+    def sample_batch(self, num_unroll_steps: int, td_steps: int):
+      games = [self.sample_game() for _ in range(self.batch_size)]
+      game_pos = [(g, self.sample_position(g)) for g in games]
+      return [(g.make_image(i), g.history[i:i + num_unroll_steps], g.make_target(i, num_unroll_steps, td_steps, g.to_play())) for (g, i) in game_pos]
+   */
+  public sampleBatch (numUnrollSteps: number, tdSteps: number): Batch[] {
+    return this.sampleGame().map(index => {
+      const g = this.buffer[index]
+      const position = this.samplePosition(g)
+      const actionHistory = g.actionHistory.slice(position, position + numUnrollSteps)
+      const target = g.makeTarget(position, numUnrollSteps, tdSteps)
+      return new Batch(g.makeImage(position), actionHistory, target)
     })
   }
 
@@ -126,7 +124,7 @@ export class ReplayBuffer {
     try {
       const json = fs.readFileSync(this.path.concat('games.json'), { encoding: 'utf8' })
       if (json !== null) {
-        this.buffer = new GameHistory(environment).deserialize(json)
+        this.buffer = new GameHistory(environment, this.config).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
         this.numPlayedGames = this.buffer.length
         this.numPlayedSteps = this.totalSamples
@@ -156,73 +154,35 @@ export class ReplayBuffer {
   /**
    * sampleGame - Sample game from buffer either uniformly or according to some priority.
    * See paper appendix Training.
-   * @param forceUniform Flag to force a uniform selection randomly
    * @private
    */
-  private sampleGame (forceUniform: boolean): MuZeroGameSample {
-    const prioritizedSample = this.config.prioritizedReplay && !forceUniform
-    let gameProb
-    let gameIndex = 0
-    if (prioritizedSample) {
-      const gameProbs = this.buffer.map(gameHistory => gameHistory.gamePriority)
-      // First, we loop the replay buffer to count up the total game priorities
-      const total = gameProbs.reduce((s, p) => s + p, 0)
-      // Total in hand, we can now pick a random value akin to our
-      // random index from before.
-      let threshold = Math.random() * total
-      // Now we just need to loop through the replay buffer one more time
-      // until we discover which value would live within this
-      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
-      // for checking the threshold if we get so far
-      for (; gameIndex < gameProbs.length - 1; ++gameIndex) {
-        // Add the weight to our running total.
-        threshold -= gameProbs[gameIndex]
-        // If this value falls within the threshold, we're done!
-        if (threshold < 0) {
-          break
-        }
-      }
-      gameProb = gameProbs[gameIndex] / total
+  private sampleGame (): number[] {
+    // use equal probability = 1 when uniform selection is requested
+    if (this.buffer.length > 1) {
+      const gameProbs = tf.tensor1d(this.buffer.map(gameHistory => this.config.prioritizedReplay ? gameHistory.gamePriority : 1)).log()
+      return tf.tidy(() => {
+        // Define the probability for each game based on popularity (game priorities).
+        // Select the most popular games - note that for some reason we need to ask for
+        // one more sample as the first one always is fixed
+        return tf.multinomial(gameProbs, this.config.batchSize + 1).arraySync().slice(1) as number[]
+      })
     } else {
-      gameProb = 1 / this.buffer.length
-      gameIndex = Math.floor(Math.random() * this.buffer.length)
+      return this.buffer.map(_ => 0)
     }
-    return new MuZeroGameSample(this.buffer[gameIndex], gameProb)
   }
 
   /**
    * samplePosition - Sample position from game either uniformly or according to some priority
    * @param gameHistory
-   * @param forceUniform Flag to force a uniform selection randomly
    * @private
    */
-  private samplePosition (gameHistory: GameHistory, forceUniform: boolean): MuZeroPositionSample {
-    const prioritizedSample = this.config.prioritizedReplay && !forceUniform
-    let positionProb
-    let positionIndex = 0
-    if (prioritizedSample) {
-      // First, we loop the game history datasets to count up the total weight of priorities (discounted target deviations)
-      const total = gameHistory.priorities.reduce((s, p) => s + p, 0)
-      // Total in hand, we can now pick a random value akin to our
-      // random index from before.
-      let threshold = Math.random() * total
-      // Now we just need to loop through the main data.old.copy(1) one more time
-      // until we discover which value would live within this
-      // particular threshold. Stop before last data.old.copy(1) set since there will be no need
-      // for checking the threshold if we get so far
-      for (; positionIndex < gameHistory.priorities.length - 1; ++positionIndex) {
-        // Reduce our running total with the priority
-        threshold -= gameHistory.priorities[positionIndex]
-        // If this value falls within the threshold, we're done!
-        if (threshold < 0) {
-          break
-        }
-      }
-      positionProb = gameHistory.priorities[positionIndex] / total
-    } else {
-      positionProb = 1 / gameHistory.rootValues.length
-      positionIndex = Math.floor(Math.random() * gameHistory.rootValues.length)
-    }
-    return new MuZeroPositionSample(positionIndex, positionProb)
+  private samplePosition (gameHistory: GameHistory): number {
+    return tf.tidy(() => {
+      // define the probability for each game position based on priorities (discounted target deviations)
+      const probs = tf.tensor1d(gameHistory.priorities.map(p => this.config.prioritizedReplay ? p : 1)).log()
+      // select the most popular position - note that for some reason we need to ask for
+      // two samples as the first one always is fixed
+      return tf.multinomial(probs, 2).bufferSync().get(1)
+    })
   }
 }

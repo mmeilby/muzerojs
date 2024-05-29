@@ -36,6 +36,8 @@ export class MuZeroNim implements Environment {
     conf.pbCinit = 1.25
     conf.simulations = 50
     conf.savedNetworkPath = 'nim'
+    conf.normMin = -1
+    conf.normMax = 1
     return conf
   }
 

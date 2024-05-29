@@ -68,7 +68,9 @@ export class Training {
         loss_policy
       })
       const performance = replayBuffer.statistics()
+      // Log the performance measured by number of wins by player 1 in 100 games
       tf.node.summaryFileWriter(this.logDir).scalar('perf', performance, this.trainingStep)
+      // Log the current use of tensors. The expected use should include the tensors saved as game history in replay buffer
       tf.node.summaryFileWriter(this.logDir).scalar('use', tf.memory().numTensors, this.trainingStep)
       if (info.enabled) {
         info(`--- Performance: ${performance.toFixed(1)}%`)

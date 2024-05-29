@@ -91,7 +91,7 @@ describe('Muzero Self Play Unit Test:', () => {
   })
   test('Check expand node', () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
-    const gameHistory = new GameHistory(factory)
+    const gameHistory = new GameHistory(factory, conf)
     const no = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
     // save network predicted reward - squeeze to remove batch dimension
     const reward = no.tfReward.squeeze().bufferSync().get(0)
@@ -110,7 +110,7 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check Monte Carlo Tree Search', async () => {
     const util = new MuZeroNimUtil()
     const selfPlayTest = new SelfPlayTest(conf, factory)
-    const gameHistory = new GameHistory(factory)
+    const gameHistory = new GameHistory(factory, conf)
     let sucess = 0
     for (let i = 0; i < 100; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
@@ -129,7 +129,7 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check Monte Carlo Tree Search 2', async () => {
     const util = new MuZeroNimUtil()
     const selfPlayTest = new SelfPlayTest(conf, factory)
-    const gameHistory = new GameHistory(factory)
+    const gameHistory = new GameHistory(factory, conf)
     gameHistory.apply(util.actionFromString('H1-1'))
     gameHistory.apply(util.actionFromString('H5-5'))
     gameHistory.apply(util.actionFromString('H4-3'))
@@ -155,7 +155,7 @@ describe('Muzero Self Play Unit Test:', () => {
   }, 10000)
   test('Check Monte Carlo Tree Search SELF PLAY', async () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
-    const gameHistory = new GameHistory(factory)
+    const gameHistory = new GameHistory(factory, conf)
     for (let i = 0; i < 20; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
       const top = selfPlayTest.testSelectAction(root.children.map(c => c.visits))

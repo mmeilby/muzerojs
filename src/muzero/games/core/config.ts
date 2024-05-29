@@ -7,7 +7,7 @@ export class Config {
   // Number of parts of games to train on at each training step
   public batchSize: number = 64
   // Number of game moves to keep for every batch element
-  public numUnrollSteps: number = 10
+  public numUnrollSteps: number = 5
   // Number of steps in the future to take into account for calculating the target value
   public tdSteps: number
 
@@ -45,6 +45,14 @@ export class Config {
   public pbCbase: number = 19652
   // UCB hyperparameter base - the lower boundary for the hyperparameter - should be in the range [1.0; 2.0]
   public pbCinit: number = 1.25
+  // Normalizer known bounds.
+  // Leave undefined to rescale dynamically to value upper and lower bounds.
+  // If we already have some information about which values occur in the
+  // environment, we can use them to initialize the rescaling.
+  // This is not strictly necessary, but establishes identical behaviour to
+  // AlphaZero in board games.
+  public normMin: number | undefined
+  public normMax: number | undefined
 
   // -------------------------------------
   // Training configuration
@@ -88,6 +96,7 @@ export class Config {
     // Shape of the action representation used as input for the dynamics network - g(s, a)
     public readonly actionShape: number[]
   ) {
+    // If Monte Carlo return should always be used, set tdSteps = maxMoves
     this.tdSteps = this.actionSpace
     this.maxMoves = this.actionSpace
   }
