@@ -11,7 +11,7 @@ const debug = debugFactory('muzero:muzero:debug')
 async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const conf = factory.config()
-  conf.trainingSteps = 2000
+  conf.trainingSteps = 220
   conf.batchSize = 32
   conf.replayBufferSize = 256
   conf.checkpointInterval = 25
@@ -20,7 +20,7 @@ async function run (): Promise<void> {
   conf.lrInit = 0.0005
   let lastStep = 0
   try {
-    const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, { encoding: 'utf8' })
+    const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, {encoding: 'utf8'})
     if (json !== null) {
       lastStep = JSON.parse(json) as number
     }

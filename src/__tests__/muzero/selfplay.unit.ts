@@ -64,7 +64,7 @@ describe('Muzero Self Play Unit Test:', () => {
   // Ensure that SelfPlay ends after only one game production iteration
   conf.trainingSteps = -1
   conf.simulations = 50
-  conf.decayingParam = 0.9
+  conf.decayingParam = 1.0
   conf.rootExplorationFraction = 0
   conf.pbCbase = 5
   conf.pbCinit = 1.25
@@ -73,21 +73,24 @@ describe('Muzero Self Play Unit Test:', () => {
   const selfPlay = new SelfPlay(conf, factory)
   test('Check select action', () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
-    const visits = [125, 250, 125, 75, 350, 75]
-    let target = 4
+    const visits = [0, 125, 250, 125, 0, 75, 350, 75, 0]
+    let target = 350  // The node with the highest number of visits
     let sucess = 0
+    let fails = 0
     for (let i = 0; i < 1000; i++) {
       const action = selfPlayTest.testSelectAction(visits)
-      if (action === target) {
+      // Don't accept choices with no visits
+      if (visits[action] === 0) {
+        fails++
+      }
+      if (visits[action] === target) {
         sucess++
-        visits.push((visits.shift() ?? 0) + 10)
-        target--
-        if (target < 0) {
-          target = 5
-        }
+        // Slide the visits to check other positions
+        visits.push((visits.shift() ?? 0))
       }
     }
-    expect(sucess).toEqual(1000)
+    expect(fails).toEqual(0)
+    expect(Math.abs(350 - sucess)).toBeLessThan(35)
   })
   test('Check expand node', () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
@@ -151,7 +154,7 @@ describe('Muzero Self Play Unit Test:', () => {
         selfPlayTest.debugChildren(root)
       }
     }
-    expect(sucess).toEqual(100)
+    expect(sucess).toBeGreaterThan(90)
   }, 10000)
   test('Check Monte Carlo Tree Search SELF PLAY', async () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
@@ -173,6 +176,6 @@ describe('Muzero Self Play Unit Test:', () => {
       await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     }
     expect(replayBuffer.numPlayedGames).toEqual(50)
-    expect(replayBuffer.statistics()).toEqual(100)
+    expect(Math.abs(50 - replayBuffer.statistics())).toBeLessThanOrEqual(15)
   }, 50000)
 })

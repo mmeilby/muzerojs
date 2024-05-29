@@ -47,7 +47,8 @@ export class GameHistory {
     this.childVisits = []
     this.rootValues = []
     this.priorities = []
-    this.gamePriority = 0
+    const conf = 0  // TODO: Define the priority
+    this.gamePriority = this.config.prioritizedReplay ? conf : 1
   }
 
   private _state: State
@@ -78,7 +79,10 @@ export class GameHistory {
 
   public storeSearchStatistics (rootNode: RootNode): void {
     this.childVisits.push(rootNode.policy(this.config.actionSpace))
-    this.rootValues.push(rootNode.value())
+    const value = rootNode.value()
+    this.rootValues.push(value)
+    const prio = 0 // TODO: Define the priority
+    this.priorities.push(this.config.prioritizedReplay ? prio : 1)
   }
 
   public makeImage (stateIndex: number): tf.Tensor {

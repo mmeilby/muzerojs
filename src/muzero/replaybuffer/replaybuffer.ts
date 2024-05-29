@@ -122,7 +122,7 @@ export class ReplayBuffer {
     environment: Environment
   ): void {
     try {
-      const json = fs.readFileSync(this.path.concat('games.json'), { encoding: 'utf8' })
+      const json = fs.readFileSync(this.path.concat('games.json'), {encoding: 'utf8'})
       if (json !== null) {
         this.buffer = new GameHistory(environment, this.config).deserialize(json)
         this.totalSamples = this.buffer.reduce((sum, game) => sum + game.rootValues.length, 0)
@@ -157,9 +157,8 @@ export class ReplayBuffer {
    * @private
    */
   private sampleGame (): number[] {
-    // use equal probability = 1 when uniform selection is requested
     if (this.buffer.length > 1) {
-      const gameProbs = tf.tensor1d(this.buffer.map(gameHistory => this.config.prioritizedReplay ? gameHistory.gamePriority : 1)).log()
+      const gameProbs = tf.tensor1d(this.buffer.map(gameHistory => gameHistory.gamePriority)).log()
       return tf.tidy(() => {
         // Define the probability for each game based on popularity (game priorities).
         // Select the most popular games - note that for some reason we need to ask for
@@ -179,7 +178,7 @@ export class ReplayBuffer {
   private samplePosition (gameHistory: GameHistory): number {
     return tf.tidy(() => {
       // define the probability for each game position based on priorities (discounted target deviations)
-      const probs = tf.tensor1d(gameHistory.priorities.map(p => this.config.prioritizedReplay ? p : 1)).log()
+      const probs = tf.tensor1d(gameHistory.priorities).log()
       // select the most popular position - note that for some reason we need to ask for
       // two samples as the first one always is fixed
       return tf.multinomial(probs, 2).bufferSync().get(1)
