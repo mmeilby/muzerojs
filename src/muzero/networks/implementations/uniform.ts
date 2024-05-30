@@ -3,8 +3,9 @@ import { type Network } from '../nnet'
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
 import type { Model } from '../model'
-import { NetworkState } from '../networkstate'
+import { type NetworkState } from '../networkstate'
 import type { Action } from '../../games/core/action'
+import { type LossLog } from './core'
 
 export class UniformNetwork implements Network {
   constructor (
@@ -25,7 +26,7 @@ export class UniformNetwork implements Network {
     return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, state.hiddenState)
   }
 
-  public trainInference (_: Batch[]): number[] {
+  public trainInference (_: Batch[]): LossLog {
     // A uniform network should never be trained
     throw new Error('Training has been attempted on a uniform mocked network. This is not allowed.')
   }

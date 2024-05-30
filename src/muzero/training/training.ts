@@ -47,15 +47,18 @@ export class Training {
         size: this.config.batchSize
       })
       // eslint-disable-next-line @typescript-eslint/naming-convention
-      const [loss, accuracy, loss_value, loss_reward, loss_policy] = tf.tidy(() => {
+      const [loss, accuracy, acc_value, acc_reward, loss_value, loss_reward, loss_policy] = tf.tidy(() => {
         const batchSamples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps)
-        return network.trainInference(batchSamples)
+        const lossLog = network.trainInference(batchSamples)
+        return [lossLog.total, lossLog.accPolicy, lossLog.accValue, lossLog.accReward, lossLog.value, lossLog.reward, lossLog.policy]
       })
       this.losses.push(loss)
       debug(`Mean loss: step #${this.trainingStep} ${loss.toFixed(2)}, accuracy: ${accuracy.toFixed(2)}`)
       await tensorBoard.onBatchEnd(1, {
         loss,
         accuracy,
+        acc_value,
+        acc_reward,
         loss_value,
         loss_reward,
         loss_policy
@@ -63,6 +66,8 @@ export class Training {
       await tensorBoard.onEpochEnd(this.trainingStep, {
         loss,
         accuracy,
+        acc_value,
+        acc_reward,
         loss_value,
         loss_reward,
         loss_policy

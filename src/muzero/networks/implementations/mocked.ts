@@ -6,7 +6,8 @@ import { type Environment } from '../../games/core/environment'
 import type { Model } from '../model'
 import { type State } from '../../games/core/state'
 import type { Action } from '../../games/core/action'
-import { NetworkState } from '../networkstate'
+import { type NetworkState } from '../networkstate'
+import { LossLog } from './core'
 
 /**
  * Mocked network for MuZero reinforced learning
@@ -17,7 +18,7 @@ export class MockedNetwork implements Network {
   private readonly actionRange: Action[]
 
   constructor (
-    private readonly env: Environment,
+    private readonly env: Environment
   ) {
     this.actionSpaceN = env.config().actionSpace
     this.actionRange = env.actionRange()
@@ -49,7 +50,6 @@ export class MockedNetwork implements Network {
       const tfPolicies: tf.Tensor[] = []
       const newStates: State[] = []
       state.states.forEach((gameState, index) => {
-        // @ts-ignore
         const gameAction = action[index]
         const newState = this.env.step(gameState, gameAction)
         newStates.push(newState)
@@ -66,9 +66,13 @@ export class MockedNetwork implements Network {
     }
   }
 
-  public trainInference (_: Batch[]): number[] {
+  public trainInference (_: Batch[]): LossLog {
     // Return the perfect loss and accuracy of 100%
-    return [0, 1]
+    const lossLog: LossLog = new LossLog()
+    lossLog.accPolicy = 1
+    lossLog.accValue = 1
+    lossLog.accReward = 1
+    return lossLog
   }
 
   public getModel (): Model {

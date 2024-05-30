@@ -21,17 +21,25 @@ class Prediction {
   }
 }
 
-class LossLog {
+export class LossLog {
   public value: number
   public reward: number
   public policy: number
-  public accuracy: number
+  public accPolicy: number
+  public accValue: number
+  public accReward: number
 
   constructor () {
     this.value = 0
     this.reward = 0
     this.policy = 0
-    this.accuracy = 0
+    this.accPolicy = 0
+    this.accValue = 0
+    this.accReward = 0
+  }
+
+  get total (): number {
+    return this.value + this.reward + this.policy
   }
 }
 
@@ -103,15 +111,14 @@ export class CoreNet implements Network {
       return tfHiddenState
     }
   */
-  public trainInference (samples: Batch[]): number[] {
+  public trainInference (samples: Batch[]): LossLog {
     debug(`Training sample set of ${samples.length} games`)
     const lossLog: LossLog = new LossLog()
     const optimizer = tf.train.rmsprop(this.config.lrInit, this.config.lrDecayRate, this.config.momentum)
     // const cost = optimizer.minimize(() => this.calculateLoss(samples, lossLog), true, this.model.getHiddenStateWeights())
-    const cost = optimizer.minimize(() => this.calculateLoss(samples, lossLog), true)
-    const loss = cost?.bufferSync().get(0) ?? 0
+    optimizer.minimize(() => this.calculateLoss(samples, lossLog))
     optimizer.dispose()
-    return [loss, lossLog.accuracy, lossLog.value, lossLog.reward, lossLog.policy]
+    return lossLog
   }
 
   public getModel (): Model {
@@ -149,31 +156,33 @@ export class CoreNet implements Network {
     const loss = {
       value: tf.scalar(0),
       reward: tf.scalar(0),
-      policy: tf.scalar(0),
-      total: tf.scalar(0)
+      policy: tf.scalar(0)
     }
     const accuracy = {
       value: tf.scalar(0),
       reward: tf.scalar(0),
-      policy: tf.scalar(0),
-      total: tf.scalar(0)
+      policy: tf.scalar(0)
     }
+    let gradientLoss = tf.scalar(0)
     for (let i = 0; i < predictions.length; i++) {
       const prediction = predictions[i]
       const label = labels[i]
+      let unrollStepLoss = tf.scalar(0)
       // Get the mean value loss for the batches at step i
       const lossV = tf.losses.meanSquaredError(label.value, prediction.value)
       // Get the mean value accuracy for the batches at step i
-      // const accV = tf.tensor1d([1.0]).sub(tf.metrics.meanAbsolutePercentageError(label.value, prediction.value).mean())
+      const accV = tf.metrics.meanAbsolutePercentageError(label.value, prediction.value)
+      accuracy.value = accuracy.value.add(accV)
       loss.value = loss.value.add(lossV)
-      loss.total = loss.total.add(this.scaleGradient(lossV.mul(this.config.valueScale), prediction.scale))
+      unrollStepLoss = unrollStepLoss.add(lossV.mul(this.config.valueScale))
       if (i > 0) {
         // Get the mean reward loss for the batches at step i
         const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward)
         // Get the mean reward accuracy for the batches at step i
-        // const accR = tf.tensor1d([1.0]).sub(tf.metrics.meanAbsolutePercentageError(label.reward, prediction.reward).mean())
+        const accR = tf.metrics.meanAbsolutePercentageError(label.reward, prediction.reward)
+        accuracy.reward = accuracy.reward.add(accR)
         loss.reward = loss.reward.add(lossR)
-        loss.total = loss.total.add(this.scaleGradient(lossR, prediction.scale))
+        unrollStepLoss = unrollStepLoss.add(lossR)
       }
       // Get the mean policy loss for the batches at step i
       const lossP = tf.losses.softmaxCrossEntropy(label.policy, prediction.policy)
@@ -181,17 +190,21 @@ export class CoreNet implements Network {
       const accP = tf.metrics.categoricalAccuracy(label.policy, prediction.policy).mean()
       accuracy.policy = accuracy.policy.add(accP)
       loss.policy = loss.policy.add(lossP)
-      loss.total = loss.total.add(this.scaleGradient(lossP, prediction.scale))
+      unrollStepLoss = unrollStepLoss.add(lossP)
+      gradientLoss = gradientLoss.add(this.scaleGradient(unrollStepLoss, prediction.scale))
     }
     batchTotalLoss.value = loss.value.div(predictions.length).bufferSync().get(0)
     batchTotalLoss.reward = loss.reward.div(predictions.length).bufferSync().get(0)
     batchTotalLoss.policy = loss.policy.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.accuracy = accuracy.policy.div(predictions.length).bufferSync().get(0)
+    batchTotalLoss.accPolicy = accuracy.policy.div(predictions.length).bufferSync().get(0)
+    batchTotalLoss.accValue = 1 - accuracy.value.div(predictions.length).bufferSync().get(0) / 100
+    batchTotalLoss.accReward = 1 - accuracy.reward.div(predictions.length).bufferSync().get(0) / 100
     if (debug.enabled) {
       debug(`Sample set loss details: V=${batchTotalLoss.value.toFixed(3)} R=${batchTotalLoss.reward.toFixed(3)} P=${batchTotalLoss.policy.toFixed(3)}`)
-      debug(`Sample set mean loss: T=${loss.total.bufferSync().get(0).toFixed(3)}`)
+      debug(`Sample set accuracy details: V=${batchTotalLoss.accValue.toFixed(3)} R=${batchTotalLoss.accReward.toFixed(3)} P=${batchTotalLoss.accPolicy.toFixed(3)}`)
+      debug(`Sample set mean loss: T=${batchTotalLoss.total.toFixed(3)}`)
     }
-    return loss.total.asScalar()
+    return gradientLoss
   }
 
   /**
