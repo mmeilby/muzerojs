@@ -89,7 +89,7 @@ export class CoreNet implements Network {
    * @param action
    */
   public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
-    const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a.action))], 1)
+    const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a?.action ?? tf.zeros(this.config.actionShape)))], 1)
     const tfHiddenState = this.model.dynamics(conditionedHiddenState)
     const tfReward = this.model.reward(conditionedHiddenState)
     const tfPolicy = this.model.policy(tfHiddenState)
@@ -221,12 +221,12 @@ export class CoreNet implements Network {
       policy: tno.tfPolicy
     }]
     // Transpose the actions to align all batch actions for the same unroll step
-    // If actions are missing in a batch repeat the last action to fill up to number of unrolled steps
+    // If actions are missing in a batch, leave the spot undefined
     const actions: Action[][] = []
     for (let step = 0; step < this.config.numUnrollSteps; step++) {
       actions[step] = []
       for (let batchId = 0; batchId < sample.length; batchId++) {
-        actions[step][batchId] = sample[batchId].actions[step] ?? sample[batchId].actions.at(-1)
+        actions[step][batchId] = sample[batchId].actions[step]
       }
     }
     let state = tno.tfHiddenState
@@ -258,8 +258,7 @@ export class CoreNet implements Network {
         scale: 0,
         value: tf.concat(sample.map(batch => batch.targets[c].value)),
         reward: tf.concat(sample.map(batch => batch.targets[c].reward)),
-        policy: tf.concat(sample.map((batch, i) =>
-          c < batch.actions.length ? batch.targets[c].policy : tf.unstack(predictions[c].policy)[i].expandDims(0)))
+        policy: tf.concat(sample.map((batch, i) => batch.targets[c].policy))
       })
     }
     return labels

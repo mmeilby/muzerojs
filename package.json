@@ -13,7 +13,7 @@
     "pretest": "npm run clean && npm run build",
     "posttest": "npm run lint:fix",
     "prestart": "npm run build",
-    "start": "DEBUG=muzero:muzero:*,muzero:training:*,muzero:selfplay:log,muzero:selfplay:info,muzero:network:log,muzero:network:model,muzero.network.core node dist/muzero.js",
+    "start": "DEBUG=muzero:muzero:* node dist/muzero.js",
     "prepublishOnly": "npm run test",
     "test": "jest"
   },
