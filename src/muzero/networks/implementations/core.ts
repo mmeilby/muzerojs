@@ -171,16 +171,14 @@ export class CoreNet implements Network {
       // Get the mean value loss for the batches at step i
       const lossV = tf.losses.meanSquaredError(label.value, prediction.value)
       // Get the mean value accuracy for the batches at step i
-      const accV = tf.metrics.meanAbsolutePercentageError(label.value, prediction.value)
-      accuracy.value = accuracy.value.add(accV)
+      accuracy.value = accuracy.value.add(lossV.sqrt())
       loss.value = loss.value.add(lossV)
       unrollStepLoss = unrollStepLoss.add(lossV.mul(this.config.valueScale))
       if (i > 0) {
         // Get the mean reward loss for the batches at step i
         const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward)
         // Get the mean reward accuracy for the batches at step i
-        const accR = tf.metrics.meanAbsolutePercentageError(label.reward, prediction.reward)
-        accuracy.reward = accuracy.reward.add(accR)
+        accuracy.reward = accuracy.reward.add(lossR.sqrt())
         loss.reward = loss.reward.add(lossR)
         unrollStepLoss = unrollStepLoss.add(lossR)
       }
@@ -194,11 +192,11 @@ export class CoreNet implements Network {
       gradientLoss = gradientLoss.add(this.scaleGradient(unrollStepLoss, prediction.scale))
     }
     batchTotalLoss.value = loss.value.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.reward = loss.reward.div(predictions.length).bufferSync().get(0)
+    batchTotalLoss.reward = loss.reward.div(predictions.length - 1).bufferSync().get(0)
     batchTotalLoss.policy = loss.policy.div(predictions.length).bufferSync().get(0)
     batchTotalLoss.accPolicy = accuracy.policy.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.accValue = 1 - accuracy.value.div(predictions.length).bufferSync().get(0) / 100
-    batchTotalLoss.accReward = 1 - accuracy.reward.div(predictions.length).bufferSync().get(0) / 100
+    batchTotalLoss.accValue = 1 - accuracy.value.div(predictions.length).bufferSync().get(0)
+    batchTotalLoss.accReward = 1 - accuracy.reward.div(predictions.length - 1).bufferSync().get(0)
     if (debug.enabled) {
       debug(`Sample set loss details: V=${batchTotalLoss.value.toFixed(3)} R=${batchTotalLoss.reward.toFixed(3)} P=${batchTotalLoss.policy.toFixed(3)}`)
       debug(`Sample set accuracy details: V=${batchTotalLoss.accValue.toFixed(3)} R=${batchTotalLoss.accReward.toFixed(3)} P=${batchTotalLoss.accPolicy.toFixed(3)}`)

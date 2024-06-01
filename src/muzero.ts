@@ -11,7 +11,7 @@ const debug = debugFactory('muzero:muzero:debug')
 async function run (): Promise<void> {
   const factory = new MuZeroNim()
   const conf = factory.config()
-  conf.trainingSteps = 3000
+  conf.trainingSteps = 6000
   conf.batchSize = 32
   conf.replayBufferSize = 256
   conf.checkpointInterval = 25
