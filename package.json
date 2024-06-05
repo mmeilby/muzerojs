@@ -14,6 +14,7 @@
     "posttest": "npm run lint:fix",
     "prestart": "npm run build",
     "start": "DEBUG=muzero:muzero:* node dist/muzero.js",
+    "nim": "DEBUG=muzero:muzero:* node dist/nim.js",
     "prepublishOnly": "npm run test",
     "test": "jest"
   },

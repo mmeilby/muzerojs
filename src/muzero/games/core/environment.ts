@@ -54,6 +54,8 @@ export interface Environment {
    */
   reward: (state: State, player: number) => number
 
+  validateReward: (player: number, reward: number) => number
+
   expertAction: (state: State) => Action
 
   expertActionPolicy: (state: State) => tf.Tensor

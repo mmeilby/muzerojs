@@ -6,6 +6,7 @@ import { Config } from '../core/config'
 import { type Action } from '../core/action'
 import { type State } from '../core/state'
 import { MuZeroCartpoleAction } from './cartpoleaction'
+import { MlpNet } from '../../networks/implementations/mlp'
 
 // const debug = debugFactory('muzero:cartpole:module')
 
@@ -36,16 +37,19 @@ export class MuZeroCartpole implements Environment {
       new MuZeroCartpoleAction(0).actionShape
     )
     conf.maxMoves = 500
-    conf.decayingParam = 0.997
+    conf.decayingParam = 1.0
     conf.rootDirichletAlpha = 0.25
-    conf.simulations = 150
-    conf.batchSize = 100
-    conf.tdSteps = 7
-    conf.lrInit = 0.0001
-    conf.trainingSteps = 200
-    conf.replayBufferSize = 1000
-    conf.numUnrollSteps = 500
-    conf.lrDecayRate = 0.1
+    conf.rootExplorationFraction = 0.1
+    conf.pbCbase = 50
+    conf.pbCinit = 1.25
+    conf.simulations = 50
+    conf.savedNetworkPath = 'cartpole'
+    conf.normMin = 0
+    conf.normMax = 1
+    conf.modelGenerator = () => new MlpNet(
+      conf.observationSize,
+      conf.actionSpace
+    )
     return conf
   }
 
@@ -88,6 +92,10 @@ export class MuZeroCartpole implements Environment {
    */
   public reward (state: State, _: number): number {
     return (state as MuZeroCartpoleState).dataset.reward
+  }
+
+  public validateReward (_: number, reward: number): number {
+    return reward
   }
 
   public terminal (state: State): boolean {

@@ -5,7 +5,6 @@ import { UniformNetwork } from '../networks/implementations/uniform'
 
 import { EventEmitter } from 'events'
 import { CoreNet } from '../networks/implementations/core'
-import { ResNet } from '../networks/implementations/conv'
 import fs from 'fs'
 
 const debug = debugFactory('muzero:sharedstorage:module')
@@ -32,7 +31,7 @@ export class SharedStorage {
     //    this.maxNetworks = 2
     this.updatedNetworkEvent = new EventEmitter()
     this.networkCount = (network != null) ? 0 : -1
-    this.path = 'data/'.concat(this.config.savedNetworkPath, '/')
+    this.path = `data/${this.config.savedNetworkPath}/`
     // Create path if needed
     fs.stat(this.path, (err, _stats) => {
       if (err != null) {
@@ -44,18 +43,12 @@ export class SharedStorage {
   }
 
   public initialize (): Network {
-    const model = new ResNet(
-      this.config.observationSize,
-      this.config.actionSpace,
-      this.config.observationSize,
-      this.config.actionShape
-    )
-    return new CoreNet(model, this.config)
+    return new CoreNet(this.config)
   }
 
   public uniformNetwork (): Network {
     // make uniform network: policy -> uniform, value -> 0, reward -> 0
-    return new UniformNetwork(this.config.actionSpace)
+    return new UniformNetwork(this.config)
   }
 
   public latestNetwork (): Network {

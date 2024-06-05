@@ -74,7 +74,7 @@ describe('Muzero Self Play Unit Test:', () => {
   test('Check select action', () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
     const visits = [0, 125, 250, 125, 0, 75, 350, 75, 0]
-    let target = 350  // The node with the highest number of visits
+    const target = 350 // The node with the highest number of visits
     let sucess = 0
     let fails = 0
     for (let i = 0; i < 1000; i++) {
@@ -176,6 +176,6 @@ describe('Muzero Self Play Unit Test:', () => {
       await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     }
     expect(replayBuffer.numPlayedGames).toEqual(50)
-    expect(Math.abs(50 - replayBuffer.statistics())).toBeLessThanOrEqual(15)
+    expect(Math.abs(50 - replayBuffer.performance())).toBeLessThanOrEqual(15)
   }, 50000)
 })

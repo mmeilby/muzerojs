@@ -1,8 +1,8 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
-// import debugFactory from 'debug'
+import debugFactory from 'debug'
 import { type Model } from '../model'
 
-// const debug = debugFactory('muzero:network:debug')
+const debug = debugFactory('muzero:network:debug')
 
 export class MlpNet implements Model {
   // Size of hidden layer
@@ -44,6 +44,7 @@ export class MlpNet implements Model {
     this.logDir = './logs/20230109-005200' // + sysdatetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
     this.makeModel()
+    debug('Constructed a multilayer perceptron network')
   }
 
   public makeModel (): void {

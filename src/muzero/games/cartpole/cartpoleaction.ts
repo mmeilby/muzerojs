@@ -9,7 +9,7 @@ export class MuZeroCartpoleAction implements Action {
   }
 
   get actionShape (): number[] {
-    return [4, 1]
+    return [1, 4]
   }
 
   get action (): tf.Tensor {

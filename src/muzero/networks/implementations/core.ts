@@ -47,10 +47,12 @@ export class LossLog {
  * Core network wrapper for MuZero reinforced learning
  */
 export class CoreNet implements Network {
+  private readonly model: Model
+
   constructor (
-    private readonly model: Model,
     private readonly config: Config
   ) {
+    this.model = config.modelGenerator()
   }
 
   /**

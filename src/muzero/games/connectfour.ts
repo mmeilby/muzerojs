@@ -163,6 +163,11 @@ export class MuZeroConnectFour implements Environment {
     return MuZeroConnectFour.haveWinner(state, player)
   }
 
+  public validateReward (player: number, reward: number): number {
+    const winner = player * reward
+    return winner > 0 ? 1 : 0
+  }
+
   public terminal (state: State): boolean {
     return MuZeroConnectFour.haveWinner(state) !== 0 || this.legalActions(state).length === 0
   }

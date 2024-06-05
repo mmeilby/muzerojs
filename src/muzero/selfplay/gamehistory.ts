@@ -47,7 +47,7 @@ export class GameHistory {
     this.childVisits = []
     this.rootValues = []
     this.priorities = []
-    const conf = 0  // TODO: Define the priority
+    const conf = 0 // TODO: Define the priority
     this.gamePriority = this.config.prioritizedReplay ? conf : 1
   }
 
@@ -138,7 +138,7 @@ export class GameHistory {
     // def make_target(self, state_index: int, num_unroll_steps: int, td_steps: int, to_play: Player):
     const targets: Target[] = []
     // targets = []
-    // const to_play = this._state.player TODO: Why is this relevant as a parameter for make_target in pseudocode? It looks like the current player for the game history.
+    // const to_play = this._state.player TODO: Why is this relevant as a parameter for make_target in pseudocode? It seems to be the current player for the game history.
     for (let currentIndex = stateIndex; currentIndex < stateIndex + numUnrollSteps + 1; currentIndex++) {
       // # For simplicity the network always predicts the most recently received
       // # reward, even for the initial representation network where we already
@@ -202,6 +202,10 @@ export class GameHistory {
 
   public historyLength (): number {
     return this.actionHistory.length
+  }
+
+  public validateEndState (): number {
+    return this.environment.validateReward(this.toPlayHistory.at(-1) ?? 0, this.rewards.at(-1) ?? 0)
   }
 
   public toString (): string {

@@ -1,3 +1,6 @@
+import { type Model } from '../../networks/model'
+import { MlpNet } from '../../networks/implementations/mlp'
+
 export class Config {
   // ---------------------------------
   // Replay buffer configuration
@@ -77,6 +80,8 @@ export class Config {
   // paper recommends 0.25 (See paper appendix Reanalyze)
   public valueScale: number = 0.25
 
+  public modelGenerator: () => Model
+
   /**
    * Construct the configuration object
    * @param actionSpace Number of all possible actions
@@ -99,5 +104,6 @@ export class Config {
     // If Monte Carlo return should always be used, set tdSteps = maxMoves
     this.tdSteps = this.actionSpace
     this.maxMoves = this.actionSpace
+    this.modelGenerator = () => new MlpNet(observationSize, actionSpace)
   }
 }

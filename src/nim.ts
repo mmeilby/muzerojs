@@ -1,24 +1,24 @@
 import { SharedStorage } from './muzero/training/sharedstorage'
 import { ReplayBuffer } from './muzero/replaybuffer/replaybuffer'
 import { SelfPlay } from './muzero/selfplay/selfplay'
+import { MuZeroNim } from './muzero/games/nim/nim'
 import { Training } from './muzero/training/training'
 import debugFactory from 'debug'
 import fs from 'fs'
-import { MuZeroCartpole } from './muzero/games/cartpole/cartpoleenv'
 
 const debug = debugFactory('muzero:muzero:debug')
 
 async function run (): Promise<void> {
-  const factory = new MuZeroCartpole()
+  const factory = new MuZeroNim()
   const conf = factory.config()
-  conf.trainingSteps = 1000
+  conf.trainingSteps = 10000
   conf.batchSize = 32
   conf.replayBufferSize = 1024
   conf.checkpointInterval = 100
   conf.rootExplorationFraction = 0.25
   conf.pbCbase = conf.simulations
   conf.lrInit = 0.0005
-  debug('Running training session for MuZero acting on Cart Pole environment')
+  debug('Running training session for MuZero acting on Nim environment')
   let lastStep = 0
   try {
     const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, { encoding: 'utf8' })

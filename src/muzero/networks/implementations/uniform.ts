@@ -6,23 +6,24 @@ import type { Model } from '../model'
 import { type NetworkState } from '../networkstate'
 import type { Action } from '../../games/core/action'
 import { type LossLog } from './core'
+import { type Config } from '../../games/core/config'
 
 export class UniformNetwork implements Network {
   constructor (
     // Length of the action tensors
-    private readonly actionSpace: number
+    private readonly config: Config
   ) {
   }
 
   public initialInference (state: NetworkState): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
-    const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
+    const tfPolicy = tf.fill([1, this.config.actionSpace], 1 / this.config.actionSpace)
     return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, state.hiddenState)
   }
 
   public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
     // The mocked network will respond with a uniform distributed probability for all actions
-    const tfPolicy = tf.fill([1, this.actionSpace], 1 / this.actionSpace)
+    const tfPolicy = tf.fill([1, this.config.actionSpace], 1 / this.config.actionSpace)
     return new TensorNetworkOutput(tf.zeros([1, 1]), tf.zeros([1, 1]), tfPolicy, state.hiddenState)
   }
 

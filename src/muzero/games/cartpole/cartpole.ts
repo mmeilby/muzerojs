@@ -32,6 +32,7 @@ export class CartPoleDataSet {
   ) {
   }
 }
+
 /**
  * Cart-pole system simulator.
  *
@@ -61,6 +62,8 @@ export class CartPole {
   // Threshold values, beyond which a simulation will be marked as failed.
   private readonly xThreshold: number = 2.4
   private readonly thetaThreshold: number = 12 / 360 * 2 * Math.PI
+
+  private readonly rewardStep: number = 0.002
 
   /**
    * Constructor of CartPole.
@@ -109,7 +112,7 @@ export class CartPole {
     const theta = dataset.theta + this.tau * dataset.thetaDot
     const thetaDot = dataset.thetaDot + this.tau * thetaAcc
 
-    return new CartPoleDataSet(x, xDot, theta, thetaDot, dataset.reward + 1)
+    return new CartPoleDataSet(x, xDot, theta, thetaDot, dataset.reward + this.rewardStep)
   }
 
   /**
@@ -122,12 +125,12 @@ export class CartPole {
    */
   public isDone (dataset: CartPoleDataSet): boolean {
     return dataset.x < -this.xThreshold || dataset.x > this.xThreshold ||
-      dataset.theta < -this.thetaThreshold || dataset.theta > this.thetaThreshold
+      dataset.theta < -this.thetaThreshold || dataset.theta > this.thetaThreshold || dataset.reward >= 1.0
   }
 
   public toString (dataset: CartPoleDataSet): string {
     const cart = `Cart: x=${dataset.x.toFixed(3)} m, v=${dataset.xDot.toFixed(3)} m/s | `
-    const pole = `Pole: a=${dataset.theta.toFixed(3)} rad, v=${dataset.thetaDot.toFixed(3)} rad/s | `
+    const pole = `Pole: a=${(dataset.theta / (2 * Math.PI) * 360).toFixed(3)} grad, v=${(dataset.thetaDot / (2 * Math.PI) * 360).toFixed(3)} grad/s | `
     const reward = `Reward: ${dataset.reward}`
     return cart.concat(pole, reward)
   }

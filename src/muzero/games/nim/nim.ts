@@ -7,6 +7,7 @@ import { Config } from '../core/config'
 import { type Action } from '../core/action'
 import { MuZeroNimAction } from './nimaction'
 import { type State } from '../core/state'
+import { ResNet } from '../../networks/implementations/conv'
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -38,6 +39,12 @@ export class MuZeroNim implements Environment {
     conf.savedNetworkPath = 'nim'
     conf.normMin = -1
     conf.normMax = 1
+    conf.modelGenerator = () => new ResNet(
+      conf.observationSize,
+      conf.actionSpace,
+      conf.observationSize,
+      conf.actionShape
+    )
     return conf
   }
 
@@ -92,6 +99,11 @@ export class MuZeroNim implements Environment {
     const winner = this.haveWinner(state)
     // so we have to switch the sign if player id is negative
     return winner === 0 ? 0 : winner * player
+  }
+
+  public validateReward (player: number, reward: number): number {
+    const winner = player * reward
+    return winner > 0 ? 1 : 0
   }
 
   public terminal (state: State): boolean {
