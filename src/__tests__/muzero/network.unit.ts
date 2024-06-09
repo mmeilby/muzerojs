@@ -8,6 +8,7 @@ import { MuZeroNimAction } from '../../muzero/games/nim/nimaction'
 import { NetworkState } from '../../muzero/networks/networkstate'
 import { CoreNet } from '../../muzero/networks/implementations/core'
 import { MlpNet } from '../../muzero/networks/implementations/mlp'
+import { Validate } from '../../muzero/validation/validate'
 
 const debug = debugFactory('muzero:unit:debug')
 
@@ -33,7 +34,15 @@ describe('Network Unit Test:', () => {
     const nor = mockedNetwork.recurrentInference(new NetworkState(no.tfHiddenState, no.state), [action, action, action])
     expect(nor.state?.toString()).toEqual('0 | H1-1 | 0-2-3-4-5,0 | H1-1 | 0-2-3-4-5,0 | H1-1 | 0-2-3-4-5')
   })
-  test('Check recurrent inference', () => {
+  test('Check mocked hidden state predictions', async () => {
+    const validate = new Validate(config, factory)
+    let deviation = 0
+    for (let i = 0; i < 10; i++) {
+      deviation += validate.testHiddenStates(mockedNetwork)
+    }
+    expect(deviation).toEqual(0)
+  })
+  test('Check recurrent inference state shape', () => {
     const gameHistory = new GameHistory(factory, config)
     const initialState = gameHistory.makeImage(-1)
     const hiddenState = tf.stack([initialState, initialState, initialState])

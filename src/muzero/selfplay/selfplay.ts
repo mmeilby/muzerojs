@@ -9,11 +9,9 @@ import { type Config } from '../games/core/config'
 import { type Network } from '../networks/nnet'
 import { ChildNode, type Node, RootNode } from './mctsnode'
 import { type TensorNetworkOutput } from '../networks/networkoutput'
-import { type State } from '../games/core/state'
 import { type Action } from '../games/core/action'
 import { NetworkState } from '../networks/networkstate'
 
-const perf = debugFactory('muzero:selfplay:perf')
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
 const debug = debugFactory('muzero:selfplay:debug')
@@ -38,8 +36,9 @@ export class SelfPlay {
    * writing it to a shared replay buffer.
    * @param storage
    * @param replayBuffer
+   * @param preload
    */
-  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer, preload: boolean = false): Promise<void> {
     info('Self play initiated')
     // Produce game plays as long as the training module runs
     do {
@@ -48,92 +47,48 @@ export class SelfPlay {
       replayBuffer.saveGame(game)
       log(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
       log('Played: %s', game.state.toString())
-      await tf.nextFrame()
+      if (!(preload && replayBuffer.totalGames < this.config.replayBufferSize)) {
+        await tf.nextFrame()
+      }
     } while (storage.networkCount < this.config.trainingSteps)
     info('Self play completed')
   }
 
   /**
-   * preloadReplayBuffer - fill the replay buffer with new current game plays
-   * based on the latest version of the trained network
-   * @param storage
-   * @param replayBuffer
+   * playGame - play a full game using the network to decide the moves
+   * Each game is produced by starting at the initial board position, then
+   * repeatedly executing a Monte Carlo Tree Search to generate moves until the end
+   * of the game is reached.
+   * @param network
+   * @param index
+   * @private
    */
-  public async preloadReplayBuffer (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
-    info(`Preload play initiated - executing ${this.config.replayBufferSize} games`)
-    const network = storage.latestNetwork()
-    for (let i = 0; i < this.config.replayBufferSize; i++) {
-      const game = this.playGame(network, i + 1)
-      replayBuffer.saveGame(game)
-    }
-    info(`Preload play completed - collected ${replayBuffer.totalSamples} samples`)
-  }
-
-  public async performance (storage: SharedStorage): Promise<void> {
-    while (storage.networkCount < this.config.trainingSteps) {
-      const certar = this.testNetwork(storage.latestNetwork())
-      const certainty = certar.reduce((m, c) => m + c, 0) / certar.length
-      perf(`--- CERTAINTY(${storage.networkCount}): avg = ${certainty.toFixed(2)} - ${JSON.stringify(certar)}`)
-      // Wait for the trained network version based on the game plays just added to the replay buffer
-      await storage.waitForUpdate()
-    }
-  }
-
-  public testNetwork (network: Network): number[] {
-    return tf.tidy(() => {
-      const certainty: number[] = []
-      const misfit: number[] = []
-      const gameHistory = new GameHistory(this.env, this.config)
-      // Play a game from start to end, register target data on the fly for the game history
-      while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-        const networkOutput = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
-        const legalActions = gameHistory.legalActions().map(a => a.id)
-        const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
-        const legalPolicy: number[] = policy.map((v, i) => legalActions.includes(i) ? v : 0)
-        log(`--- Test state: ${gameHistory.state.toString()}`)
-        log(`--- Test policy: ${legalPolicy.map(v => v.toFixed(2)).toString()}`)
-        const maxProp = legalPolicy.reduce((m, v) => m < v ? v : m, 0)
-        const sumProp = policy.reduce((s, v) => s + v, 0)
-        const sumPropR = legalPolicy.reduce((s, v) => s + v, 0)
-        certainty.push(maxProp / sumProp)
-        misfit.push((sumProp - sumPropR) / sumProp)
-        const id = legalPolicy.indexOf(maxProp)
-        log(`--- Test action: ${id}`)
-        gameHistory.apply(this.actionRange[id])
+  private playGame (network: Network, index: number = 0): GameHistory {
+    const gameHistory = new GameHistory(this.env, this.config)
+    // Play a game from start to end, register target data on the fly for the game history
+    while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
+      const rootNode = this.runMCTS(gameHistory, network)
+      const action = this.selectAction(rootNode)
+      if (debug.enabled) {
+        const recommendedAction = this.env.expertAction(gameHistory.state)
+        debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
       }
-      log(`--- Test policy: ${gameHistory.state.toString()}`)
-      log(`--- Misfit: ${misfit.map(v => v.toFixed(2)).toString()}`)
-      return certainty
-    })
+      gameHistory.apply(action)
+      gameHistory.storeSearchStatistics(rootNode)
+      debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
+    }
+    log(`--- STAT(${index}): number of game steps: ${gameHistory.actionHistory.length}`)
+    log(`--- VALUES:  ${JSON.stringify(gameHistory.rootValues.map(v => v.toFixed(2)))}`)
+    log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s, r) => s + r, 0)})`)
+    log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
+    return gameHistory
   }
 
   /**
-   * preloadReplayBuffer - fill the replay buffer with new current game plays
-   * based on the latest version of the trained network
-   * @param replayBuffer
-   */
-  public buildTestHistory (replayBuffer: ReplayBuffer): void {
-    this.unfoldGame(this.env.reset(), [], replayBuffer)
-    info(`Build history completed - generated ${replayBuffer.numPlayedGames} games with ${replayBuffer.totalSamples} samples`)
-  }
-
-  /**
-   * randomChoice - make a weighted random choice based on the policy applied
-   * @param policy Policy containing a normalized probability vector
-   * @returns The action index of the policy with the most probability randomly chosen
+   * Select the most popular action from the visited nodes
+   * @param rootNode The root node to select a child node from
    * @protected
    */
-  public randomChoice (policy: number[]): number {
-    let i = 0
-    policy.reduce((s, p) => {
-      if (s - p >= 0) {
-        i++
-      }
-      return s - p
-    }, Math.random())
-    return i
-  }
-
   protected selectAction (rootNode: RootNode): Action {
     let action = 0
     if (rootNode.children.length > 1) {
@@ -226,66 +181,38 @@ export class SelfPlay {
     // save network predicted value - squeeze to remove batch dimension
     const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
     for (const action of node.possibleActions) {
+      // When adding children in the MCTS loop, the possible actions are allowed to be any action
+      // The tree search will find the true possible actions
       const child = node.addChild([...this.actionRange], action)
       child.prior = policy[action.id] ?? 0
     }
   }
 
   /**
-   * playGame - play a full game using the network to decide the moves
-   * Each game is produced by starting at the initial board position, then
-   * repeatedly executing a Monte Carlo Tree Search to generate moves until the end
-   * of the game is reached.
-   * @param network
-   * @param index
+   * Add exploration noise
+   * At the start of each search, we can add dirichlet noise to the prior of the root
+   * to encourage the search to explore new actions.
+   * @param rootNode The root node to apply noise to
    * @private
    */
-  private playGame (network: Network, index: number = 0): GameHistory {
-    const gameHistory = new GameHistory(this.env, this.config)
-    // Play a game from start to end, register target data on the fly for the game history
-    while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
-      const rootNode = this.runMCTS(gameHistory, network)
-      const action = this.selectAction(rootNode)
-      if (debug.enabled) {
-        const recommendedAction = this.env.expertAction(gameHistory.state)
-        debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
-      }
-      gameHistory.apply(action)
-      gameHistory.storeSearchStatistics(rootNode)
-      debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
-    }
-    log(`--- STAT(${index}): number of game steps: ${gameHistory.actionHistory.length}`)
-    log(`--- VALUES:  ${JSON.stringify(gameHistory.rootValues.map(v => v.toFixed(2)))}`)
-    log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s, r) => s + r, 0)})`)
-    log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
-    return gameHistory
-  }
-
-  private unfoldGame (state: State, actionList: Action[], replayBuffer: ReplayBuffer): void {
-    const actions = this.env.legalActions(state)
-    for (const action of actions) {
-      const newState = this.env.step(state, action)
-      if (this.env.terminal(newState)) {
-        const gameHistory = new GameHistory(this.env, this.config)
-        const rootValue = this.env.reward(newState, newState.player)
-        for (const a of actionList.concat(action)) {
-          const recommendedAction = this.env.expertAction(gameHistory.state)
-          const policy = new Array(this.config.actionSpace).fill(0)
-          policy[recommendedAction.id] = 1
-          gameHistory.rootValues.push(gameHistory.state.player === newState.player ? rootValue : -rootValue)
-          gameHistory.childVisits.push(policy)
-          gameHistory.apply(a)
-        }
-        replayBuffer.saveGame(gameHistory)
-        //        console.log(JSON.stringify(gameHistory.serialize()))
-      } else {
-        this.unfoldGame(newState, actionList.concat(action), replayBuffer)
-      }
+  private addExplorationNoise (rootNode: RootNode): void {
+    // Apply noise only if the noise feature is toggled on
+    if (this.config.rootExplorationFraction > 0) {
+      // make normalized dirichlet noise vector
+      const noise = tf.tidy(() => {
+        const tfNoise = tf.randomGamma([rootNode.children.length], this.config.rootDirichletAlpha)
+        const tfSumNoise = tfNoise.sum()
+        return tfNoise.div(tfSumNoise).arraySync() as number[]
+      })
+      const frac = this.config.rootExplorationFraction
+      rootNode.children.forEach((child, i) => {
+        child.prior = child.prior * (1 - frac) + noise[i] * frac
+      })
     }
   }
 
   /**
-   * selectChild - Select the child node with the highest UCB score
+   * Select the child node with the highest UCB score
    * @param node
    * @param minMaxStats
    * @private
@@ -369,23 +296,6 @@ export class SelfPlay {
       minMaxStats.update(node.value())
       // decay value and include network predicted reward
       value = node.reward + this.config.decayingParam * value
-    }
-  }
-
-  // At the start of each search, we add dirichlet noise to the prior of the root
-  // to encourage the search to explore new actions.
-  private addExplorationNoise (node: RootNode): void {
-    if (this.config.rootExplorationFraction > 0) {
-      // make normalized dirichlet noise vector
-      const noise = tf.tidy(() => {
-        const tfNoise = tf.randomGamma([node.children.length], this.config.rootDirichletAlpha)
-        const tfSumNoise = tfNoise.sum()
-        return tfNoise.div(tfSumNoise).arraySync() as number[]
-      })
-      const frac = this.config.rootExplorationFraction
-      node.children.forEach((child, i) => {
-        child.prior = child.prior * (1 - frac) + noise[i] * frac
-      })
     }
   }
 }

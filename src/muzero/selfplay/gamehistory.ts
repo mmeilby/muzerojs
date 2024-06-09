@@ -67,6 +67,19 @@ export class GameHistory {
     return this.environment.legalActions(this._state)
   }
 
+  /**
+   * Return a policy with probabilities only for allowed actions.
+   * Illegal actions are assigned the probability of 0.
+   * The probabilities are adjusted so the sum is 1.0 even though some actions are masked away.
+   * @param policy
+   */
+  public legalPolicy (policy: number[]): number[] {
+    const legalActions = this.legalActions().map(a => a.id)
+    const legalPolicy: number[] = policy.map((v, i) => legalActions.includes(i) ? v : 0)
+    const psum = legalPolicy.reduce((s, v) => s + v, 0)
+    return psum > 0 ? legalPolicy.map(v => v / psum) : legalPolicy
+  }
+
   public apply (action: Action): State {
     const state = this.environment.step(this._state, action)
     this.observationHistory.push(state.observation)
@@ -204,6 +217,12 @@ export class GameHistory {
     return this.actionHistory.length
   }
 
+  /**
+   * Validate end state for current game.
+   * The validation lies in the range [0; 1]. A result of 1 indicates the most desired outcome from trained network perspective.
+   * The validation can be used to tell how well the network responds.
+   * Validation depends on the model, however the parameters used for validation are: player to take last action and the reward for that action.
+   */
   public validateEndState (): number {
     return this.environment.validateReward(this.toPlayHistory.at(-1) ?? 0, this.rewards.at(-1) ?? 0)
   }
