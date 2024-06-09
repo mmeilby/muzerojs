@@ -5,13 +5,15 @@ import { Training } from './muzero/training/training'
 import debugFactory from 'debug'
 import fs from 'fs'
 import { MuZeroCartpole } from './muzero/games/cartpole/cartpoleenv'
+import { Validate } from './muzero/validation/validate'
 
 const debug = debugFactory('muzero:muzero:debug')
+debugFactory.enable('muzero:muzero:debug')
 
 async function run (): Promise<void> {
   const factory = new MuZeroCartpole()
   const conf = factory.config()
-  conf.trainingSteps = 1000
+  conf.trainingSteps = 10000
   conf.batchSize = 32
   conf.replayBufferSize = 1024
   conf.checkpointInterval = 100
@@ -34,10 +36,11 @@ async function run (): Promise<void> {
   replayBuffer.loadSavedGames(factory)
   const selfPlay = new SelfPlay(conf, factory)
   const train = new Training(conf, lastStep)
+  const validate = new Validate(conf, factory)
   await Promise.all([
     selfPlay.runSelfPlay(sharedStorage, replayBuffer),
     train.trainNetwork(sharedStorage, replayBuffer),
-    selfPlay.performance(sharedStorage)
+    validate.logMeasures(sharedStorage, lastStep)
   ])
   debug(`--- Performance: ${replayBuffer.performance().toFixed(1)}%`)
   debug(`--- Accuracy (${sharedStorage.networkCount}): ${train.statistics().toFixed(2)}`)
