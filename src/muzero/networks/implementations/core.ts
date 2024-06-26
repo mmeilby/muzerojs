@@ -91,7 +91,8 @@ export class CoreNet implements Network {
    * @param action
    */
   public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
-    const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a?.action ?? tf.zeros(this.config.actionShape)))], 1)
+    // Add the action tensors as a new filter (last dimension)
+    const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a?.action ?? tf.zeros(this.config.actionShape)))], this.config.actionShape.length)
     const tfHiddenState = this.model.dynamics(conditionedHiddenState)
     const tfReward = this.model.reward(conditionedHiddenState)
     const tfPolicy = this.model.policy(tfHiddenState)

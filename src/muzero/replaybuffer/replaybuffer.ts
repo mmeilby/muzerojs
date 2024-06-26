@@ -158,8 +158,8 @@ export class ReplayBuffer {
    */
   private sampleGame (): number[] {
     if (this.buffer.length > 1) {
-      const gameProbs = tf.tensor1d(this.buffer.map(gameHistory => gameHistory.gamePriority)).log()
       return tf.tidy(() => {
+        const gameProbs = tf.tensor1d(this.buffer.map(gameHistory => gameHistory.gamePriority)).log()
         // Define the probability for each game based on popularity (game priorities).
         // Select the most popular games - note that for some reason we need to ask for
         // one more sample as the first one always is fixed

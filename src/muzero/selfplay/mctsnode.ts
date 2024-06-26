@@ -61,6 +61,13 @@ export class Node {
   public isExpanded (): boolean {
     return this.children.length > 0
   }
+
+  public disposeHiddenStates (): void {
+    this.hiddenState?.hiddenState.dispose()
+    for (const child of this.children) {
+      child.disposeHiddenStates()
+    }
+  }
 }
 
 /**

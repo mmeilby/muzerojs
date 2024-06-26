@@ -97,9 +97,9 @@ describe('Muzero Self Play Unit Test:', () => {
     const gameHistory = new GameHistory(factory, conf)
     const no = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
     // save network predicted reward - squeeze to remove batch dimension
-    const reward = no.tfReward.squeeze().bufferSync().get(0)
+    const reward = no.reward
     // save network predicted value - squeeze to remove batch dimension
-    const policy = no.tfPolicy.squeeze().arraySync() as number[]
+    const policy = no.policy
     const node = selfPlayTest.testExpandNode(gameHistory, network)
     expect(node.hiddenState?.hiddenState.toString()).toEqual(no.tfHiddenState.toString())
     expect(JSON.stringify(node.hiddenState?.states)).toEqual(JSON.stringify(no.state))

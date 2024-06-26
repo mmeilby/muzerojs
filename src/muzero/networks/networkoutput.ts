@@ -1,6 +1,5 @@
 import type * as tf from '@tensorflow/tfjs-node-gpu'
-import { State } from '../games/core/state'
-import { Action } from '../games/core/action'
+import { type State } from '../games/core/state'
 
 export class TensorNetworkOutput {
   public state: State[] | undefined
@@ -12,15 +11,20 @@ export class TensorNetworkOutput {
     public tfHiddenState: tf.Tensor
   ) {
   }
-}
 
-export class NetworkInput {
-  public state: State[] | undefined
-  public action: Action[] | undefined
+  /**
+   * Get the policy as a number array
+   * The network result is assumed to be a single batch
+   */
+  get policy (): number[] {
+    return this.tfPolicy.squeeze().arraySync() as number[]
+  }
 
-  constructor (
-    public tfState: tf.Tensor,
-    public tfAction?: tf.Tensor | undefined
-  ) {
+  get reward (): number {
+    return this.tfReward.squeeze().bufferSync().get(0)
+  }
+
+  get value (): number {
+    return this.tfValue.squeeze().bufferSync().get(0)
   }
 }

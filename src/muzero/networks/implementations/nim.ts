@@ -5,7 +5,7 @@ import debugFactory from 'debug'
 
 const debug = debugFactory('muzero:network:model')
 
-export class ResNet implements Model {
+export class NimNet implements Model {
   private readonly representationModel: tf.LayersModel
   private readonly valueModel: tf.LayersModel
   private readonly policyModel: tf.LayersModel
@@ -23,7 +23,7 @@ export class ResNet implements Model {
   ) {
     const condHxShape: number[] = [...this.hxShape]
     condHxShape[this.hxShape.length - 1]++
-    this.representationModel = this.makeResNet('hs', this.inputShape, this.hxShape)
+    this.representationModel = this.makeState('hs', this.inputShape, this.hxShape)
     this.representationModel.summary(100, [25, 50, 70, 80, 100], (msg) => {
       debug(msg)
     })
@@ -39,7 +39,7 @@ export class ResNet implements Model {
     this.rewardModel.summary(100, [25, 50, 70, 80, 100], (msg) => {
       debug(msg)
     })
-    this.dynamicsModel = this.makeResNet('ds', condHxShape, this.hxShape)
+    this.dynamicsModel = this.makeState('ds', condHxShape, this.hxShape)
     this.dynamicsModel.summary(100, [25, 50, 70, 80, 100], (msg) => {
       debug(msg)
     })
@@ -123,7 +123,7 @@ export class ResNet implements Model {
   }
 
   public copyWeights (network: Model): void {
-    if (network instanceof ResNet) {
+    if (network instanceof NimNet) {
       tf.tidy(() => {
         network.representationModel.setWeights(this.representationModel.getWeights())
         network.valueModel.setWeights(this.valueModel.getWeights())
@@ -146,14 +146,42 @@ export class ResNet implements Model {
     return disposed
   }
 
-  // Batch normalisation and ReLU always go together, let's add them to the separate function
-  private batchNormRelu (name: string, input: tf.SymbolicTensor): tf.SymbolicTensor {
-    const batch = tf.layers.batchNormalization({
+  /*
+  class Conv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, bn=False):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding='same', bias=False)
+        self.bn = None
+        if bn:
+            self.bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        h = self.conv(x)
+        if self.bn is not None:
+            h = self.bn(h)
+        return h
+
+  class ResidualBlock(nn.Module):
+      def __init__(self, filters):
+          super().__init__()
+          self.conv = Conv(filters, filters, 3, True)
+
+      def forward(self, x):
+          return F.relu(x + (self.conv(x)))
+
+   */
+  private makeConv (name: string, input: tf.SymbolicTensor, filters: number, kernelSize: number, bn: boolean = false): tf.SymbolicTensor {
+    const conv = tf.layers.conv2d({
+      name: `${name}_2d`,
+      kernelSize,
+      filters,
+      padding: 'same'
+    })
+    const batchNorm = tf.layers.batchNormalization({
       name: `${name}_bn`
-    }).apply(input)
-    return tf.layers.reLU({
-      name: `${name}_rl`
-    }).apply(batch) as tf.SymbolicTensor
+    })
+    const layer = bn ? batchNorm.apply(conv.apply(input)) : conv.apply(input)
+    return layer as tf.SymbolicTensor
   }
 
   /**
@@ -164,141 +192,116 @@ export class ResNet implements Model {
    * @param noDownSample
    * @private
    */
-  private makeResidualBlock (name: string, input: tf.SymbolicTensor, filters: number, noDownSample: boolean = false): tf.SymbolicTensor {
-    const filter1 = tf.layers.conv2d({
-      name: `${name}_f1_cv`,
-      kernelSize: 3,
-      filters,
-      padding: 'same',
-      strides: noDownSample ? 1 : 2,
-      kernelInitializer: 'glorotNormal'
-    }).apply(input) as tf.SymbolicTensor
-    const filter1norm = this.batchNormRelu(`${name}_f1`, filter1)
+  private makeResidualBlock (name: string, input: tf.SymbolicTensor, filters: number): tf.SymbolicTensor {
+    const conv = this.makeConv(`${name}`, input, filters, 3, true)
     // Residual connection - here we sum up first matrix and the result of 2 convolutions
-    return tf.layers.add({
+    const add = tf.layers.add({
       name: `${name}_ad`
-    }).apply([filter1, filter1norm]) as tf.SymbolicTensor
+    })
+    const relu = tf.layers.reLU({
+      name: `${name}_rl`
+    })
+    return relu.apply(add.apply([input, conv])) as tf.SymbolicTensor
   }
 
-  // ResNet - put all together
-  private makeResNet (name: string, inputShape: number[], outputShape: number[]): tf.LayersModel {
-    const input = tf.input({
-      shape: inputShape,
-      name: `${name}_in`
+  /*
+  num_filters = 16
+  num_blocks = 4
+
+  class Representation(nn.Module):
+    ''' Conversion from observation to inner abstract state '''
+    def __init__(self, input_shape):
+        super().__init__()
+        self.input_shape = input_shape
+        self.board_size = self.input_shape[1] * self.input_shape[2]
+
+        self.layer0 = Conv(self.input_shape[0], num_filters, 3, bn=True)
+        self.blocks = nn.ModuleList([ResidualBlock(num_filters) for _ in range(num_blocks)])
+
+    def forward(self, x):
+        h = F.relu(self.layer0(x))
+        for block in self.blocks:
+            h = block(h)
+        return h
+
+    def inference(self, x):
+        self.eval()
+        with torch.no_grad():
+            rp = self(torch.from_numpy(x).unsqueeze(0))
+        return rp.cpu().numpy()[0]
+
+  class Prediction(nn.Module):
+    ''' Policy and value prediction from inner abstract state '''
+    def __init__(self, action_shape):
+        super().__init__()
+        self.board_size = np.prod(action_shape[1:])
+        self.action_size = action_shape[0] * self.board_size
+
+        self.conv_p1 = Conv(num_filters, 4, 1, bn=True)
+        self.conv_p2 = Conv(4, 1, 1)
+
+        self.conv_v = Conv(num_filters, 4, 1, bn=True)
+        self.fc_v = nn.Linear(self.board_size * 4, 1, bias=False)
+
+    def forward(self, rp):
+        h_p = F.relu(self.conv_p1(rp))
+        h_p = self.conv_p2(h_p).view(-1, self.action_size)
+
+        h_v = F.relu(self.conv_v(rp))
+        h_v = self.fc_v(h_v.view(-1, self.board_size * 4))
+
+        # range of value is -1 ~ 1
+        return F.softmax(h_p, dim=-1), torch.tanh(h_v)
+
+    def inference(self, rp):
+        self.eval()
+        with torch.no_grad():
+            p, v = self(torch.from_numpy(rp).unsqueeze(0))
+        return p.cpu().numpy()[0], v.cpu().numpy()[0][0]
+
+   */
+
+  private makeState (name: string, inputShape: number[], outputShape: number[]): tf.LayersModel {
+    const input = tf.layers.input({
+      name: `${name}_in`,
+      shape: inputShape
     })
-    const conv1Filter = tf.layers.conv2d({
-      name: `${name}_f1_cv`,
-      kernelSize: 3,
-      filters: inputShape[2],
-      strides: 1,
-      padding: 'same',
-      kernelInitializer: 'glorotNormal'
-    }).apply(input) as tf.SymbolicTensor
-    let filter1norm = this.batchNormRelu(`${name}_f1`, conv1Filter)
-    for (let i = 1; i <= 8; i++) {
-      filter1norm = this.makeResidualBlock(`${name}_rb${i}`, filter1norm, inputShape[2] * Math.pow(2, i), true)
-    }
-    const flatten = tf.layers.flatten({
-      name: `${name}_fl`
-    }).apply(filter1norm)
-    const dense = tf.layers.dense({
-      name: `${name}_de`,
-      units: outputShape.reduce((p, v) => p * v, 1),
-      kernelInitializer: 'glorotNormal',
-      activation: 'relu'
-    }).apply(flatten) as tf.SymbolicTensor
-    const reshapeLayer = tf.layers.reshape({ targetShape: outputShape }).apply(dense) as tf.SymbolicTensor
+    const conv = this.makeConv(`${name}_rb0`, input, 16, 3, true)
+    const relu = tf.layers.reLU({
+      name: `${name}_rl0`
+    }).apply(conv) as tf.SymbolicTensor
+    const rsb1 = this.makeResidualBlock(`${name}_rb1`, relu, 16)
+    const rsb2 = this.makeResidualBlock(`${name}_rb2`, rsb1, 16)
+    const rsb3 = this.makeResidualBlock(`${name}_rb3`, rsb2, 16)
+    const rsb4 = this.makeResidualBlock(`${name}_rb4`, rsb3, 16)
+    const conv2 = this.makeConv(`${name}_rb5`, rsb4, outputShape[outputShape.length - 1], 3)
+    const relu2 = tf.layers.reLU({
+      name: `${name}_rl5`
+    }).apply(conv2) as tf.SymbolicTensor
     return tf.model({
       inputs: input,
-      outputs: reshapeLayer
+      outputs: relu2
     })
   }
 
   private makePolicy (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
-    /*
-    // Create a sequential neural network model. tf.sequential provides an API
-    // for creating "stacked" models where the output from one layer is used as
-    // the input to the next layer.
-    const model = tf.sequential()
-    // The first layer of the convolutional neural network plays a dual role:
-    // it is both the input layer of the neural network and a layer that performs
-    // the first convolution operation on the input. It receives the 28x28 pixels
-    // black and white images. This input layer uses 16 filters with a kernel size
-    // of 5 pixels each. It uses a simple RELU activation function which pretty
-    // much just looks like this: __/
-    model.add(tf.layers.conv2d({
-      name: `${name}_cv`,
-      inputShape,
-      kernelSize: 3,
-      filters: 16,
-      activation: 'relu'
-    }))
-    // After the first layer we include a MaxPooling layer. This acts as a sort of
-    // downsampling using max values in a region instead of averaging.
-    // https://www.quora.com/What-is-max-pooling-in-convolutional-neural-networks
-    model.add(tf.layers.maxPooling2d({
-      name: `${name}_mp`,
-      poolSize: 2,
-      strides: 2
-    }))
-
-    // Now we flatten the output from the 2D filters into a 1D vector to prepare
-    // it for input into our last layer. This is common practice when feeding
-    // higher dimensional data to a final classification output layer.
-    model.add(tf.layers.flatten({
-      name: `${name}_fl`
-    }))
-
-    model.add(tf.layers.dense({
-      name: `${name}_dh`,
-      units: 64,
-      activation: 'relu'
-    }))
-
-    // Our last layer is a dense layer which has 10 output units, one for each
-    // output class (i.e. 0, 1, 2, 3, 4, 5, 6, 7, 8, 9). Here the classes actually
-    // represent numbers, but it's the same idea if you had classes that
-    // represented other entities like dogs and cats (two output classes: 0, 1).
-    // We use the softmax function as the activation for the output layer as it
-    // creates a probability distribution over our 10 classes so their output
-    // values sum to 1.
-    model.add(tf.layers.dense({
-      name: `${name}_do`,
-      units: outputSize,
-      activation: 'softmax'
-    }))
-    return model
-    */
-    const input = tf.input({
-      shape: inputShape,
-      name: `${name}_in`
+    const input = tf.layers.input({
+      name: `${name}_in`,
+      shape: inputShape
     })
-    const conv1Filter = tf.layers.conv2d({
-      name: `${name}_f1_cv`,
-      kernelSize: 1,
-      filters: inputShape[2] * 2,
-      strides: 1,
-      padding: 'same',
-      kernelInitializer: 'glorotNormal'
-    }).apply(input) as tf.SymbolicTensor
-    const filter1norm = this.batchNormRelu(`${name}_f1`, conv1Filter)
-    const conv2Filter = tf.layers.conv2d({
-      name: `${name}_f2_cv`,
-      kernelSize: 1,
-      filters: 1,
-      strides: 1,
-      padding: 'same',
-      kernelInitializer: 'glorotNormal'
-    }).apply(filter1norm) as tf.SymbolicTensor
+    const conv = this.makeConv(`${name}_fi1`, input, 4, 1, true)
+    const relu = tf.layers.reLU({
+      name: `${name}_rl`
+    }).apply(conv) as tf.SymbolicTensor
+    const conv2 = this.makeConv(`${name}_fi2`, relu, 1, 1)
     const flatten = tf.layers.flatten({
       name: `${name}_fl`
-    }).apply(conv2Filter)
+    })
     const dense = tf.layers.dense({
       name: `${name}_de`,
       units: outputSize,
-      kernelInitializer: 'glorotNormal',
       activation: 'softmax'
-    }).apply(flatten) as tf.SymbolicTensor
+    }).apply(flatten.apply(conv2)) as tf.SymbolicTensor
     return tf.model({
       inputs: input,
       outputs: dense
@@ -306,28 +309,22 @@ export class ResNet implements Model {
   }
 
   private makeValue (name: string, inputShape: number[]): tf.LayersModel {
-    const input = tf.input({
-      shape: inputShape,
-      name: `${name}_in`
+    const input = tf.layers.input({
+      name: `${name}_in`,
+      shape: inputShape
     })
-    const conv1Filter = tf.layers.conv2d({
-      name: `${name}_f1_cv`,
-      kernelSize: 1,
-      filters: inputShape[2] * 2,
-      strides: 1,
-      padding: 'same',
-      kernelInitializer: 'glorotNormal'
-    }).apply(input) as tf.SymbolicTensor
-    const filter1norm = this.batchNormRelu(`${name}_f1`, conv1Filter)
+    const conv = this.makeConv(`${name}`, input, 4, 1, true)
+    const relu = tf.layers.reLU({
+      name: `${name}_rl`
+    }).apply(conv) as tf.SymbolicTensor
     const flatten = tf.layers.flatten({
       name: `${name}_fl`
-    }).apply(filter1norm)
+    })
     const dense = tf.layers.dense({
       name: `${name}_de`,
       units: 1,
-      kernelInitializer: 'glorotNormal',
       activation: 'tanh'
-    }).apply(flatten) as tf.SymbolicTensor
+    }).apply(flatten.apply(relu)) as tf.SymbolicTensor
     return tf.model({
       inputs: input,
       outputs: dense

@@ -15,8 +15,7 @@ async function run (): Promise<void> {
   const sharedStorage = new SharedStorage(conf)
   const network = sharedStorage.latestNetwork()
   let state = factory.reset()
-  const currentObservation = state.observation.expandDims(0)
-  let networkOutput = network.initialInference(new NetworkState(currentObservation))
+  let networkOutput = network.initialInference(new NetworkState(state.observation))
   while (!factory.terminal(state)) {
     // select the most popular action
     const bestAction = tf.multinomial(networkOutput.tfPolicy as tf.Tensor1D, 1, undefined, false) as tf.Tensor1D

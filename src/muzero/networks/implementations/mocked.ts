@@ -59,7 +59,7 @@ export class MockedNetwork implements Network {
         hiddenStates.push(newState.observation)
       })
       const tfValue = tf.stack(tfValues)
-      const tno = new TensorNetworkOutput(tfValue, tfValue, tf.stack(tfPolicies), tf.stack(hiddenStates))
+      const tno = new TensorNetworkOutput(tfValue, tfValue, tf.stack(tfPolicies), tf.concat(hiddenStates))
       tno.state = newStates
       return tno
     } else {

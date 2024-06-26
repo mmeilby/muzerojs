@@ -7,7 +7,7 @@ import { Config } from '../core/config'
 import { type Action } from '../core/action'
 import { MuZeroNimAction } from './nimaction'
 import { type State } from '../core/state'
-import { ResNet } from '../../networks/implementations/conv'
+import { NimNet } from '../../networks/implementations/nim'
 
 const debug = debugFactory('muzero:nim:module')
 
@@ -39,7 +39,7 @@ export class MuZeroNim implements Environment {
     conf.savedNetworkPath = 'nim'
     conf.normMin = -1
     conf.normMax = 1
-    conf.modelGenerator = () => new ResNet(
+    conf.modelGenerator = () => new NimNet(
       conf.observationSize,
       conf.actionSpace,
       conf.observationSize,

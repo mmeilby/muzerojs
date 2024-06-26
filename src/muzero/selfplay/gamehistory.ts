@@ -103,8 +103,7 @@ export class GameHistory {
     if (image === undefined) {
       throw new Error(`Invalid index used for makeImage(${stateIndex})`)
     }
-    // Add batch dimension to image tensor
-    return image.expandDims(0)
+    return image
   }
 
   /**

@@ -18,12 +18,12 @@ describe('Nim Unit Test:', () => {
     expect(factory.legalActions(state).map(a => a.toString())).toEqual(
       ['H1-1', 'H2-1', 'H2-2', 'H3-1', 'H3-2', 'H3-3', 'H4-1', 'H4-2', 'H4-3', 'H4-4', 'H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
-    expect(state.observation.equal(tf.tensor3d([
+    expect(state.observation.equal(tf.tensor4d([[
       [[1], [0], [0], [0], [0]],
       [[1], [1], [0], [0], [0]],
       [[1], [1], [1], [0], [0]],
       [[1], [1], [1], [1], [0]],
-      [[1], [1], [1], [1], [1]]]))).toBeTruthy()
+      [[1], [1], [1], [1], [1]]]]))).toBeTruthy()
     const s1 = factory.step(state, new MuZeroNimAction().set('H1-1'))
     expect(s1.board.toString()).toEqual('0,2,3,4,5')
     expect(factory.legalActions(s1).map(a => a.toString())).toEqual(

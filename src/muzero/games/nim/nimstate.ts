@@ -11,10 +11,16 @@ export class MuZeroNimState implements State {
   ) {
   }
 
+  /**
+   * Return the shape of the observation tensors excluding the batch dimension
+   */
   get observationShape (): number[] {
     return [config.heaps, config.heapSize, 1]
   }
 
+  /**
+   * Make an observation tensor shaped as observationShape including the batch dimension
+   */
   get observation (): tf.Tensor {
     const board: number[][][] = []
     for (let i = 0; i < config.heaps; i++) {
@@ -24,7 +30,7 @@ export class MuZeroNimState implements State {
       }
       board.push(pins)
     }
-    return tf.tensor3d(board)
+    return tf.tensor3d(board).expandDims(0)
   }
 
   public static state (observation: tf.Tensor): MuZeroNimState {

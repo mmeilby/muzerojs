@@ -75,6 +75,7 @@ export class SelfPlay {
       }
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
+      rootNode.disposeHiddenStates()
       debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
     }
     log(`--- STAT(${index}): number of game steps: ${gameHistory.actionHistory.length}`)
@@ -120,49 +121,57 @@ export class SelfPlay {
       // obtain a hidden state given the current observation.
       const tno = network.initialInference(new NetworkState(gameHistory.makeImage(-1), [gameHistory.state]))
       this.expandNode(rootNode, tno)
-      // We also need to add exploration noise to the root node actions.
-      // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
-      // rather than only exploring the action which it currently believes to be optimal.
-      this.addExplorationNoise(rootNode)
-      // We then run a Monte Carlo Tree Search using only action sequences and the
-      // model learned by the network.
-      if (rootNode.children.length > 0) {
-        // If we can make an action for the root node let us descend the tree
-        for (let sim = 0; sim < this.config.simulations; sim++) {
-          let node = rootNode
-          const nodePath: Node[] = [rootNode]
-          const debugSearchTree: number[] = []
-          while (node.isExpanded()) {
-            const selectedNode = this.selectChild(node, minMaxStats)
-            nodePath.unshift(selectedNode)
-            if (debug.enabled) {
-              debugSearchTree.push(selectedNode.action?.id ?? -1)
-            }
-            node = selectedNode
+      // Save the hidden state from being disposed by tf.tidy()
+      return tno.tfHiddenState
+    })
+    // We also need to add exploration noise to the root node actions.
+    // This is important to ensure that the Monte Carlo Tree Search explores a range of possible actions
+    // rather than only exploring the action which it currently believes to be optimal.
+    this.addExplorationNoise(rootNode)
+    // We then run a Monte Carlo Tree Search using only action sequences and the
+    // model learned by the network.
+    if (rootNode.children.length > 0) {
+      // If we can make an action for the root node let us descend the tree
+      for (let sim = 0; sim < this.config.simulations; sim++) {
+        let node = rootNode
+        const nodePath: Node[] = [rootNode]
+        const debugSearchTree: number[] = []
+        while (node.isExpanded()) {
+          const selectedNode = this.selectChild(node, minMaxStats)
+          nodePath.unshift(selectedNode)
+          if (debug.enabled) {
+            debugSearchTree.push(selectedNode.action?.id ?? -1)
           }
-          debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')}, node probability=${node.prior.toFixed(2)}`)
-          // Inside the search tree we use the dynamics function to obtain the next
-          // hidden state given an action and the previous hidden state (obtained from parent node).
-          if (nodePath.length > 1) {
-            const parent = nodePath[1]
+          node = selectedNode
+        }
+        debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')}, node probability=${node.prior.toFixed(2)}`)
+        // Inside the search tree we use the dynamics function to obtain the next
+        // hidden state given an action and the previous hidden state (obtained from parent node).
+        if (nodePath.length > 1) {
+          const parent = nodePath[1]
+          tf.tidy(() => {
+            // Ensure some obvious conditions:
+            // - that the node is a child node and that the parent hidden state is defined
             if (node instanceof ChildNode && parent.hiddenState !== undefined) {
-              const networkOutput = network.recurrentInference(parent.hiddenState, [node.action])
-              this.expandNode(node, networkOutput)
+              const tno = network.recurrentInference(parent.hiddenState, [node.action])
+              this.expandNode(node, tno)
               // Update node path with predicted value - squeeze to remove batch dimension
-              this.backPropagate(nodePath, networkOutput.tfValue.squeeze().bufferSync().get(0), node.player, minMaxStats)
+              this.backPropagate(nodePath, tno.value, node.player, minMaxStats)
+              // Save the hidden state from being disposed by tf.tidy()
+              return tno.tfHiddenState
             } else {
-              // This case should not happen - some inconsistency has occurred.
-              // Only unexpanded root node does not have action and hidden state defined
+              // This should not happen - some inconsistency has occurred.
+              // Only unexpanded root node does not have hidden state defined
               throw new Error('Recurrent inference: hidden state was unexpectedly undefined')
             }
-          } else {
-            debug('Recurrent inference attempted on a root node')
-            debug(`State: ${gameHistory.state.toString()}`)
-            throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
-          }
+          })
+        } else {
+          debug('Recurrent inference attempted on a root node')
+          debug(`State: ${gameHistory.state.toString()}`)
+          throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
         }
       }
-    })
+    }
     return rootNode
   }
 
@@ -177,9 +186,9 @@ export class SelfPlay {
     // save network predicted hidden state
     node.hiddenState = new NetworkState(networkOutput.tfHiddenState, networkOutput.state)
     // save network predicted reward - squeeze to remove batch dimension
-    node.reward = networkOutput.tfReward.squeeze().bufferSync().get(0)
+    node.reward = networkOutput.reward
     // save network predicted value - squeeze to remove batch dimension
-    const policy = networkOutput.tfPolicy.squeeze().arraySync() as number[]
+    const policy = networkOutput.policy
     for (const action of node.possibleActions) {
       // When adding children in the MCTS loop, the possible actions are allowed to be any action
       // The tree search will find the true possible actions
