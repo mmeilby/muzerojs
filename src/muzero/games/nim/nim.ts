@@ -32,7 +32,7 @@ export class MuZeroNim implements Environment {
       new MuZeroNimAction(0).actionShape
     )
     conf.decayingParam = 1.0
-    conf.rootExplorationFraction = 0.1
+    conf.rootExplorationFraction = 0.25
     conf.pbCbase = 50
     conf.pbCinit = 1.25
     conf.simulations = 50

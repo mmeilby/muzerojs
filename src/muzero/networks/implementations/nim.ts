@@ -266,21 +266,24 @@ export class NimNet implements Model {
       name: `${name}_in`,
       shape: inputShape
     })
-    const conv = this.makeConv(`${name}_rb0`, input, 16, 3, true)
+    //    const conv = this.makeConv(`${name}_rb0`, input, 16, 3, true)
+    const conv = this.makeConv(`${name}_rb`, input, outputShape[outputShape.length - 1], 3, true)
     const relu = tf.layers.reLU({
       name: `${name}_rl0`
     }).apply(conv) as tf.SymbolicTensor
-    const rsb1 = this.makeResidualBlock(`${name}_rb1`, relu, 16)
-    const rsb2 = this.makeResidualBlock(`${name}_rb2`, rsb1, 16)
-    const rsb3 = this.makeResidualBlock(`${name}_rb3`, rsb2, 16)
-    const rsb4 = this.makeResidualBlock(`${name}_rb4`, rsb3, 16)
-    const conv2 = this.makeConv(`${name}_rb5`, rsb4, outputShape[outputShape.length - 1], 3)
-    const relu2 = tf.layers.reLU({
-      name: `${name}_rl5`
-    }).apply(conv2) as tf.SymbolicTensor
+    /*
+        const rsb1 = this.makeResidualBlock(`${name}_rb1`, relu, 16)
+        const rsb2 = this.makeResidualBlock(`${name}_rb2`, rsb1, 16)
+        const rsb3 = this.makeResidualBlock(`${name}_rb3`, rsb2, 16)
+        const rsb4 = this.makeResidualBlock(`${name}_rb4`, rsb3, 16)
+        const conv2 = this.makeConv(`${name}_rb5`, rsb4, outputShape[outputShape.length - 1], 3)
+        const relu2 = tf.layers.reLU({
+          name: `${name}_rl5`
+        }).apply(conv2) as tf.SymbolicTensor
+    */
     return tf.model({
       inputs: input,
-      outputs: relu2
+      outputs: relu
     })
   }
 

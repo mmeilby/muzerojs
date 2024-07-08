@@ -154,58 +154,60 @@ export class CoreNet implements Network {
    * @returns `LossLog` record containing total loss and individual loss parts averaged for the batch
    */
   private calculateLoss (samples: Batch[], batchTotalLoss: LossLog): tf.Scalar {
-    const predictions: Prediction[] = this.preparePredictions(samples)
-    const labels: Prediction[] = this.prepareLabels(samples, predictions)
-    const loss = {
-      value: tf.scalar(0),
-      reward: tf.scalar(0),
-      policy: tf.scalar(0)
-    }
-    const accuracy = {
-      value: tf.scalar(0),
-      reward: tf.scalar(0),
-      policy: tf.scalar(0)
-    }
-    let gradientLoss = tf.scalar(0)
-    for (let i = 0; i < predictions.length; i++) {
-      const prediction = predictions[i]
-      const label = labels[i]
-      let unrollStepLoss = tf.scalar(0)
-      // Get the mean value loss for the batches at step i
-      const lossV = tf.losses.meanSquaredError(label.value, prediction.value)
-      // Get the mean value accuracy for the batches at step i
-      accuracy.value = accuracy.value.add(lossV.sqrt())
-      loss.value = loss.value.add(lossV)
-      unrollStepLoss = unrollStepLoss.add(lossV.mul(this.config.valueScale))
-      if (i > 0) {
-        // Get the mean reward loss for the batches at step i
-        const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward)
-        // Get the mean reward accuracy for the batches at step i
-        accuracy.reward = accuracy.reward.add(lossR.sqrt())
-        loss.reward = loss.reward.add(lossR)
-        unrollStepLoss = unrollStepLoss.add(lossR)
+    return tf.tidy(() => {
+      const predictions: Prediction[] = this.preparePredictions(samples)
+      const labels: Prediction[] = this.prepareLabels(samples, predictions)
+      const loss = {
+        value: tf.scalar(0),
+        reward: tf.scalar(0),
+        policy: tf.scalar(0)
       }
-      // Get the mean policy loss for the batches at step i
-      const lossP = tf.losses.softmaxCrossEntropy(label.policy, prediction.policy)
-      // Get the mean policy accuracy for the batches at step i
-      const accP = tf.metrics.categoricalAccuracy(label.policy, prediction.policy).mean()
-      accuracy.policy = accuracy.policy.add(accP)
-      loss.policy = loss.policy.add(lossP)
-      unrollStepLoss = unrollStepLoss.add(lossP)
-      gradientLoss = gradientLoss.add(this.scaleGradient(unrollStepLoss, prediction.scale))
-    }
-    batchTotalLoss.value = loss.value.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.reward = loss.reward.div(predictions.length - 1).bufferSync().get(0)
-    batchTotalLoss.policy = loss.policy.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.accPolicy = accuracy.policy.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.accValue = 1 - accuracy.value.div(predictions.length).bufferSync().get(0)
-    batchTotalLoss.accReward = 1 - accuracy.reward.div(predictions.length - 1).bufferSync().get(0)
-    if (debug.enabled) {
-      debug(`Sample set loss details: V=${batchTotalLoss.value.toFixed(3)} R=${batchTotalLoss.reward.toFixed(3)} P=${batchTotalLoss.policy.toFixed(3)}`)
-      debug(`Sample set accuracy details: V=${batchTotalLoss.accValue.toFixed(3)} R=${batchTotalLoss.accReward.toFixed(3)} P=${batchTotalLoss.accPolicy.toFixed(3)}`)
-      debug(`Sample set mean loss: T=${batchTotalLoss.total.toFixed(3)}`)
-    }
-    return gradientLoss
+      const accuracy = {
+        value: tf.scalar(0),
+        reward: tf.scalar(0),
+        policy: tf.scalar(0)
+      }
+      let gradientLoss = tf.scalar(0)
+      for (let i = 0; i < predictions.length; i++) {
+        const prediction = predictions[i]
+        const label = labels[i]
+        let unrollStepLoss = tf.scalar(0)
+        // Get the mean value loss for the batches at step i
+        const lossV = tf.losses.meanSquaredError(label.value, prediction.value)
+        // Get the mean value accuracy for the batches at step i
+        accuracy.value = accuracy.value.add(lossV.sqrt())
+        loss.value = loss.value.add(lossV)
+        unrollStepLoss = unrollStepLoss.add(lossV.mul(this.config.valueScale))
+        if (i > 0) {
+          // Get the mean reward loss for the batches at step i
+          const lossR = tf.losses.meanSquaredError(label.reward, prediction.reward)
+          // Get the mean reward accuracy for the batches at step i
+          accuracy.reward = accuracy.reward.add(lossR.sqrt())
+          loss.reward = loss.reward.add(lossR)
+          unrollStepLoss = unrollStepLoss.add(lossR)
+        }
+        // Get the mean policy loss for the batches at step i
+        const lossP = tf.losses.softmaxCrossEntropy(label.policy, prediction.policy)
+        // Get the mean policy accuracy for the batches at step i
+        const accP = tf.metrics.categoricalAccuracy(label.policy, prediction.policy).mean()
+        accuracy.policy = accuracy.policy.add(accP)
+        loss.policy = loss.policy.add(lossP)
+        unrollStepLoss = unrollStepLoss.add(lossP)
+        gradientLoss = gradientLoss.add(this.scaleGradient(unrollStepLoss, prediction.scale))
+      }
+      batchTotalLoss.value = loss.value.div(predictions.length).bufferSync().get(0)
+      batchTotalLoss.reward = loss.reward.div(predictions.length - 1).bufferSync().get(0)
+      batchTotalLoss.policy = loss.policy.div(predictions.length).bufferSync().get(0)
+      batchTotalLoss.accPolicy = accuracy.policy.div(predictions.length).bufferSync().get(0)
+      batchTotalLoss.accValue = 1 - accuracy.value.div(predictions.length).bufferSync().get(0)
+      batchTotalLoss.accReward = 1 - accuracy.reward.div(predictions.length - 1).bufferSync().get(0)
+      if (debug.enabled) {
+        debug(`Sample set loss details: V=${batchTotalLoss.value.toFixed(3)} R=${batchTotalLoss.reward.toFixed(3)} P=${batchTotalLoss.policy.toFixed(3)}`)
+        debug(`Sample set accuracy details: V=${batchTotalLoss.accValue.toFixed(3)} R=${batchTotalLoss.accReward.toFixed(3)} P=${batchTotalLoss.accPolicy.toFixed(3)}`)
+        debug(`Sample set mean loss: T=${batchTotalLoss.total.toFixed(3)}`)
+      }
+      return gradientLoss
+    })
   }
 
   /**

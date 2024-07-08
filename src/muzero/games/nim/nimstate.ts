@@ -30,7 +30,7 @@ export class MuZeroNimState implements State {
       }
       board.push(pins)
     }
-    return tf.tensor3d(board).expandDims(0)
+    return tf.tidy(() => tf.tensor3d(board).expandDims(0))
   }
 
   public static state (observation: tf.Tensor): MuZeroNimState {

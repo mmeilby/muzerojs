@@ -96,6 +96,7 @@ export class Training {
         info(`--- Performance: ${performance.toFixed(1)}%`)
         info(`--- Accuracy (${this.trainingStep}): ${this.statistics().toFixed(2)}`)
         info(`--- Tensor usage: ${tf.memory().numTensors.toFixed(0)}`)
+        info(`--- Replay buffer tensor usage rate: ${(tf.memory().numTensors / replayBuffer.totalSamples).toFixed(2)}`)
       }
       await tf.nextFrame()
     }

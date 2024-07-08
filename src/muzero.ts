@@ -2,53 +2,75 @@ import { SharedStorage } from './muzero/training/sharedstorage'
 import { ReplayBuffer } from './muzero/replaybuffer/replaybuffer'
 import { SelfPlay } from './muzero/selfplay/selfplay'
 import { Training } from './muzero/training/training'
-import debugFactory from 'debug'
-import fs from 'fs'
-import { MuZeroCartpole } from './muzero/games/cartpole/cartpoleenv'
 import { Validate } from './muzero/validation/validate'
+import type { Environment } from './muzero/games/core/environment'
+import { type Config } from './muzero/games/core/config'
+import fs from 'fs'
+import debugFactory from 'debug'
 
-const debug = debugFactory('muzero:muzero:debug')
-debugFactory.enable('muzero:muzero:debug')
+const output = debugFactory('muzero:muzero:output')
+// Enable general output like titles, warnings, and errors (along with environmental DEBUG settings)
+debugFactory.enable('muzero:muzero:output,'.concat(process.env.DEBUG ?? ''))
 
-async function run (): Promise<void> {
-  const factory = new MuZeroCartpole()
-  const conf = factory.config()
-  conf.trainingSteps = 10000
-  conf.batchSize = 32
-  conf.replayBufferSize = 1024
-  conf.checkpointInterval = 100
-  conf.rootExplorationFraction = 0.25
-  conf.pbCbase = conf.simulations
-  conf.lrInit = 0.0005
-  debug('Running training session for MuZero acting on Cart Pole environment')
-  let lastStep = 0
-  try {
-    const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, { encoding: 'utf8' })
-    if (json !== null) {
-      lastStep = JSON.parse(json) as number
+export class Muzero {
+  public trainingSession (factory: Environment, conf: Config): void {
+    output(`Running training session for MuZero acting on ${conf.savedNetworkPath} environment`)
+    let lastStep = 0
+    try {
+      const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, { encoding: 'utf8' })
+      if (json !== null) {
+        lastStep = JSON.parse(json) as number
+      }
+    } catch (e) {
+      // Error: ENOENT: no such file or directory, open 'data/path/muzero.json'
+      if ((e as Error).name.includes('ENOENT')) {
+        output('Configuration file does not exist. A new file will be created.')
+      } else {
+        output(e)
+      }
     }
-  } catch (e) {
-    debug(e)
+    const sharedStorage = new SharedStorage(conf)
+    const replayBuffer = new ReplayBuffer(conf)
+    replayBuffer.loadSavedGames(factory)
+    const selfPlay = new SelfPlay(conf, factory)
+    const train = new Training(conf, lastStep)
+    const validate = new Validate(conf, factory)
+    sharedStorage.loadNetwork().then(() => {
+      Promise.all([
+        selfPlay.runSelfPlay(sharedStorage, replayBuffer),
+        train.trainNetwork(sharedStorage, replayBuffer),
+        validate.logMeasures(sharedStorage, lastStep)
+      ]).then(() => {
+        output(`--- Performance: ${replayBuffer.performance().toFixed(1)}%`)
+        output(`--- Accuracy (${sharedStorage.networkCount}): ${train.statistics().toFixed(2)}`)
+        lastStep += sharedStorage.networkCount
+        fs.writeFileSync(`data/${conf.savedNetworkPath}/muzero.json`, JSON.stringify(lastStep), 'utf8')
+        output(`Training completed - training sessions completed: ${lastStep}`)
+      }).catch((err) => {
+        throw err
+      })
+    }).catch((err) => {
+      output(err)
+    })
   }
-  const sharedStorage = new SharedStorage(conf)
-  await sharedStorage.loadNetwork()
-  const replayBuffer = new ReplayBuffer(conf)
-  replayBuffer.loadSavedGames(factory)
-  const selfPlay = new SelfPlay(conf, factory)
-  const train = new Training(conf, lastStep)
-  const validate = new Validate(conf, factory)
-  await Promise.all([
-    selfPlay.runSelfPlay(sharedStorage, replayBuffer),
-    train.trainNetwork(sharedStorage, replayBuffer),
-    validate.logMeasures(sharedStorage, lastStep)
-  ])
-  debug(`--- Performance: ${replayBuffer.performance().toFixed(1)}%`)
-  debug(`--- Accuracy (${sharedStorage.networkCount}): ${train.statistics().toFixed(2)}`)
-  lastStep += sharedStorage.networkCount
-  fs.writeFileSync(`data/${conf.savedNetworkPath}/muzero.json`, JSON.stringify(lastStep), 'utf8')
-}
 
-run().then(() => {
-}).catch(err => {
-  console.error(err)
-})
+  public testSession (factory: Environment, conf: Config): void {
+    const sharedStorage = new SharedStorage(conf)
+    sharedStorage.loadNetwork().then(() => {
+      const network = sharedStorage.latestNetwork()
+      const validate = new Validate(conf, factory)
+      const outcomes: number[] = [0, 0, 0]
+      output('Running 1000 test sessions')
+      for (let i = 0; i < 1000; i++) {
+        const aiPlayer = i % 2 === 0 ? 1 : -1
+        const result = validate.battle(network, aiPlayer) + 1
+        outcomes[result] = outcomes[result] + 1
+      }
+      output('Battle AI wins', outcomes[2])
+      output('Battle AI ties', outcomes[1])
+      output('Battle AI losses', outcomes[0])
+    }).catch((err) => {
+      output(err)
+    })
+  }
+}

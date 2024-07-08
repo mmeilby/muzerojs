@@ -134,7 +134,12 @@ export class ReplayBuffer {
         this.numPlayedSteps = this.totalSamples
       }
     } catch (e) {
-      debug(e)
+      // Error: ENOENT: no such file or directory, open 'data/path/games.json'
+      if ((e as Error).name.includes('ENOENT')) {
+        debug('Saved games file does not exist. A new file will be created.')
+      } else {
+        debug(e)
+      }
     }
   }
 
