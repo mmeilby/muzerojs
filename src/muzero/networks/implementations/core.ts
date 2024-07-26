@@ -8,6 +8,7 @@ import debugFactory from 'debug'
 import { NetworkState } from '../networkstate'
 import { type Action } from '../../games/core/action'
 import { type Config } from '../../games/core/config'
+import type { ReplayBuffer } from '../../replaybuffer/replaybuffer'
 
 const debug = debugFactory('muzero:network:core')
 
@@ -52,7 +53,11 @@ export class CoreNet implements Network {
   constructor (
     private readonly config: Config
   ) {
-    this.model = config.modelGenerator()
+    if (config.modelGenerator !== undefined) {
+      this.model = config.modelGenerator()
+    } else {
+      throw new Error('Model is not specified. Please choose a model for the configuration.')
+    }
   }
 
   /**
@@ -64,22 +69,12 @@ export class CoreNet implements Network {
    * @param state
    */
   public initialInference (state: NetworkState): TensorNetworkOutput {
-    const tfHiddenState = this.model.representation(state.hiddenState)
+    const tfHiddenState = this.config.supervisedRL ? state.hiddenState.clone() : this.model.representation(state.hiddenState)
     const tfPolicy = this.model.policy(tfHiddenState)
     const tfValue = this.model.value(tfHiddenState)
     return new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, tfHiddenState)
   }
 
-  /*
-    public async trainInitialInference (state: NetworkState, targets: Prediction): Promise<tf.Tensor> {
-      const tfHiddenState = this.model.representation(state.hiddenState)
-      const loss = await Promise.all([
-        this.model.trainPolicy(tfHiddenState, targets.policy),
-        this.model.trainValue(tfHiddenState, targets.value)
-      ])
-      return tfHiddenState
-    }
-  */
   /**
    * Predict the next state and reward based on current state.
    * Also predict the policy and value for the new state
@@ -101,26 +96,35 @@ export class CoreNet implements Network {
     return new TensorNetworkOutput(tfValue, tfReward, tfPolicy, tfHiddenState)
   }
 
-  /*
-    public async trainRecurrentInference (state: NetworkState, action: Action[], targets: Prediction): Promise<tf.Tensor> {
-      const conditionedHiddenState = tf.concat([state.hiddenState, tf.stack(action.map(a => a.action))], 1)
-      const tfHiddenState = this.model.dynamics(conditionedHiddenState)
-      const loss = await Promise.all([
-        this.model.trainPolicy(tfHiddenState, targets.policy),
-        this.model.trainValue(tfHiddenState, targets.value),
-        this.model.trainReward(conditionedHiddenState, targets.reward)
-      ])
-      conditionedHiddenState.dispose()
-      return tfHiddenState
-    }
-  */
-  public trainInference (samples: Batch[]): LossLog {
-    debug(`Training sample set of ${samples.length} games`)
+  public async trainInference (replayBuffer: ReplayBuffer): Promise<LossLog> {
+    debug(`Training sample set of ${this.config.batchSize} games`)
     const lossLog: LossLog = new LossLog()
-    const optimizer = tf.train.rmsprop(this.config.lrInit, this.config.lrDecayRate, this.config.momentum)
-    // const cost = optimizer.minimize(() => this.calculateLoss(samples, lossLog), true, this.model.getHiddenStateWeights())
-    optimizer.minimize(() => this.calculateLoss(samples, lossLog))
-    optimizer.dispose()
+    if (this.config.supervisedRL) {
+      const samples = replayBuffer.sampleBatch(1, this.config.tdSteps)
+      const labels: tf.Tensor = tf.concat(samples.map(batch => batch.image))
+      const policyTargets: tf.Tensor = tf.concat(samples.map(batch => batch.targets[0].policy))
+      const valueTargets: tf.Tensor = tf.concat(samples.map(batch => batch.targets[0].value))
+      const historyP = await this.model.trainPolicy(labels, policyTargets)
+      lossLog.policy = historyP.history.loss[0] as number
+      lossLog.accPolicy = historyP.history.acc[0] as number
+      policyTargets.dispose()
+      const historyV = await this.model.trainValue(labels, valueTargets)
+      lossLog.value = historyV.history.loss[0] as number
+      lossLog.accValue = historyV.history.acc[0] as number
+      valueTargets.dispose()
+      labels.dispose()
+      samples.forEach(batch => {
+        //        batch.image.dispose()
+        batch.targets[0].value.dispose()
+        batch.targets[0].reward.dispose()
+        batch.targets[0].policy.dispose()
+      })
+    } else {
+      const optimizer = tf.train.rmsprop(this.config.lrInit, this.config.lrDecayRate, this.config.momentum)
+      // const cost = optimizer.minimize(() => this.calculateLoss(samples, lossLog), true, this.model.getHiddenStateWeights())
+      optimizer.minimize(() => this.calculateLoss(replayBuffer, lossLog))
+      optimizer.dispose()
+    }
     return lossLog
   }
 
@@ -149,14 +153,15 @@ export class CoreNet implements Network {
    * ```
    * Note: for value loss use MSE in board games, cross entropy between categorical values in Atari
    * ```
-   * @param samples
+   * @param replayBuffer
    * @param batchTotalLoss
    * @returns `LossLog` record containing total loss and individual loss parts averaged for the batch
    */
-  private calculateLoss (samples: Batch[], batchTotalLoss: LossLog): tf.Scalar {
+  private calculateLoss (replayBuffer: ReplayBuffer, batchTotalLoss: LossLog): tf.Scalar {
     return tf.tidy(() => {
+      const samples = replayBuffer.sampleBatch(this.config.numUnrollSteps, this.config.tdSteps)
       const predictions: Prediction[] = this.preparePredictions(samples)
-      const labels: Prediction[] = this.prepareLabels(samples, predictions)
+      const labels: Prediction[] = this.prepareLabels(samples)
       const loss = {
         value: tf.scalar(0),
         reward: tf.scalar(0),
@@ -253,10 +258,9 @@ export class CoreNet implements Network {
   /**
    * Prepare the target values (labels) for the samples
    * @param sample The samples containing the target values for each batch
-   * @param predictions Array of predictions as tensors for the samples
    * @returns Array of `Prediction` records containing the target values (labels) for the training
    */
-  private prepareLabels (sample: Batch[], predictions: Prediction[]): Prediction[] {
+  private prepareLabels (sample: Batch[]): Prediction[] {
     const labels: Prediction[] = []
     for (let c = 0; c <= this.config.numUnrollSteps; c++) {
       labels.push({

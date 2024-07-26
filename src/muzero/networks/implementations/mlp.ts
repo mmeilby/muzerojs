@@ -146,6 +146,14 @@ export class MlpNet implements Model {
     return this.rewardModel.predict(conditionedState.reshape([batchSize, -1])) as tf.Tensor
   }
 
+  public async trainPolicy (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.policyModel.fit(labels, targets)
+  }
+
+  public async trainValue (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.valueModel.fit(labels, targets)
+  }
+
   /**
    * initialInference
    * Execute h(o)->s f(s)->p,v
@@ -380,6 +388,9 @@ export class MlpNet implements Model {
     disposed += this.dynamicsModel.dispose().numDisposedVariables
     disposed += this.rewardModel.dispose().numDisposedVariables
     return disposed
+  }
+
+  public print (): void {
   }
 
   private makeHiddenLayer (model: tf.Sequential, name: string, inputShape: number[]): void {

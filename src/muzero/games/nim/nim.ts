@@ -39,12 +39,7 @@ export class MuZeroNim implements Environment {
     conf.savedNetworkPath = 'nim'
     conf.normMin = -1
     conf.normMax = 1
-    conf.modelGenerator = () => new NimNet(
-      conf.observationSize,
-      conf.actionSpace,
-      conf.observationSize,
-      conf.actionShape
-    )
+    conf.modelGenerator = () => new NimNet(conf)
     return conf
   }
 
@@ -95,10 +90,21 @@ export class MuZeroNim implements Environment {
    * @param player
    */
   public reward (state: State, player: number): number {
-    // haveWinner returns the player id of a winning party,
+    // haveWinner returns the player id of a winning party
+    debug(`reward(${state.toString()})`)
     const winner = this.haveWinner(state)
-    // so we have to switch the sign if player id is negative
-    return winner === 0 ? 0 : winner * player
+    // If no winner at this state we have to look for opportunities
+    if (winner === 0) {
+      const nimState = this.castState(state)
+      const opportunity = this.evaluateBoard(nimState.board)
+      // A promising state is rewarded with 0.1 - otherwise it will be penalty of -0.1
+      const reward = opportunity ? 0.1 : -0.1
+      return nimState.player * player * reward
+    } else {
+      // As winner represents the player id of a winning party,
+      // we have to switch the sign if player id is negative
+      return winner * player
+    }
   }
 
   public validateReward (player: number, reward: number): number {
@@ -202,29 +208,9 @@ export class MuZeroNim implements Environment {
       if (state.board[heap] >= nimmingSize) {
         const newBoard = [...state.board]
         newBoard[heap] -= nimmingSize
-        const binaryDigitalSum = newBoard.reduce((s, p) => s ^ p, 0)
-        const maxPinsInHeap = newBoard.reduce((s, p) => Math.max(s, p), 0)
-        const nonEmptyHeaps = newBoard.reduce((s, p) => p > 0 ? s + 1 : s, 0)
-        debug(`${action.toString()}: bds=${binaryDigitalSum}`)
-        debug(`maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps}`)
-        let opportunity = false
-        if (config.misereGame) {
-          if (maxPinsInHeap === 1) {
-            // One stick left in an odd number of heaps is an opportunity
-            opportunity = binaryDigitalSum === 1
-          } else {
-            // General case
-            opportunity = nonEmptyHeaps > 1 && binaryDigitalSum === 0
-          }
-        } else {
-          if (maxPinsInHeap === 1) {
-            // One stick left in an even number of heaps is an opportunity
-            opportunity = binaryDigitalSum === 0
-          } else {
-            // General case
-            opportunity = nonEmptyHeaps !== 1 && binaryDigitalSum === 0
-          }
-        }
+        // If the opponent got an advance - this is not an opportunity
+        const opportunity = !this.evaluateBoard(newBoard)
+        debug(`Move ${action.toString()} ${opportunity ? 'is' : 'is not'} an opportunity`)
         scoreTable.push({
           action,
           score: opportunity ? 1 : -1
@@ -238,5 +224,37 @@ export class MuZeroNim implements Environment {
       debug(`Scoretable: \n${scoreTableString}`)
     }
     return scoreTable
+  }
+
+  /**
+   * Evaluate board and measure the potential for winning
+   * @param board
+   * @returns True if current state is favorable for the player to move (likely to win)
+   * @private
+   */
+  private evaluateBoard (board: number[]): boolean {
+    const binaryDigitalSum = board.reduce((s, p) => s ^ p, 0)
+    const maxPinsInHeap = board.reduce((s, p) => Math.max(s, p), 0)
+    const nonEmptyHeaps = board.reduce((s, p) => p > 0 ? s + 1 : s, 0)
+    debug(`maxPinsInHeap=${maxPinsInHeap} nonEmptyHeaps=${nonEmptyHeaps} binaryDigitalSum=${binaryDigitalSum}`)
+    if (config.misereGame) {
+      // Don't pick the last pin
+      if (maxPinsInHeap === 1) {
+        // One stick left in an even number of heaps is an opportunity
+        return binaryDigitalSum === 0
+      } else {
+        // General case
+        return nonEmptyHeaps > 1 ? binaryDigitalSum > 0 : nonEmptyHeaps === 1
+      }
+    } else {
+      // Pick the last pin(s) - wipe the board
+      if (maxPinsInHeap === 1) {
+        // One stick left in an odd number of heaps is an opportunity
+        return binaryDigitalSum === 1
+      } else {
+        // General case
+        return nonEmptyHeaps > 1 ? binaryDigitalSum === 0 : nonEmptyHeaps === 1
+      }
+    }
   }
 }

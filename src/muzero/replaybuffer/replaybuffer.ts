@@ -99,11 +99,12 @@ export class ReplayBuffer {
   }
 
   /**
-   * sampleBatch
-   * Get a sample batch from the replay buffer (used for training)
+   * Get a sample batch from the replay buffer (used for training), one batch for each game selected
+   * The total number of batches returned is controlled by config.batchSize
+   * This method supports abstract reinforcement learning (MuZero).
    * @param numUnrollSteps Number of game moves to keep for every batch element
    * @param tdSteps Number of steps in the future to take into account for calculating the target value
-   * @return MuZeroBatch[] Sample batch - list of batch elements (batchSize length)
+   * @return Batch[] Sample batch - list of batch elements (observation, action history, and corresponding targets)
    */
 
   /* Pseudocode
@@ -135,7 +136,7 @@ export class ReplayBuffer {
       }
     } catch (e) {
       // Error: ENOENT: no such file or directory, open 'data/path/games.json'
-      if ((e as Error).name.includes('ENOENT')) {
+      if ((e as Error).message.includes('ENOENT')) {
         debug('Saved games file does not exist. A new file will be created.')
       } else {
         debug(e)

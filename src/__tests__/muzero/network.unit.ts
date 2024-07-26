@@ -58,7 +58,7 @@ describe('Network Unit Test:', () => {
     expect(deviation).toBeGreaterThan(49)
   })
   test('Check recurrent inference state shape for NimNet', () => {
-    config.modelGenerator = () => new NimNet(config.observationSize, config.actionSpace, config.observationSize, config.actionShape)
+    config.modelGenerator = () => new NimNet(config)
     const network = new CoreNet(config)
     const gameHistory = new GameHistory(factory, config)
     const initialState = gameHistory.makeImage(-1)

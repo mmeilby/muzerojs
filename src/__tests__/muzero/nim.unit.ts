@@ -54,7 +54,7 @@ describe('Nim Unit Test:', () => {
       ['H4-1', 'H4-2', 'H4-3', 'H4-4', 'H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
     expect(factory.terminal(s4)).toEqual(false)
-    expect(factory.reward(s4, s4.player)).toEqual(0)
+    expect(factory.reward(s4, s4.player)).toEqual(0.1)
     const s5 = factory.step(s4, new MuZeroNimAction().set('H4-4'))
     expect(s5.board.toString()).toEqual('0,0,0,0,5')
     expect(factory.toString(s5)).toEqual('_|_|_|_|5')
@@ -62,7 +62,7 @@ describe('Nim Unit Test:', () => {
       ['H5-1', 'H5-2', 'H5-3', 'H5-4', 'H5-5']
     )
     expect(factory.terminal(s5)).toEqual(false)
-    expect(factory.reward(s5, s5.player) === 0).toBeTruthy()
+    expect(factory.reward(s5, s5.player)).toEqual(0.1)
     const s6 = factory.step(s5, new MuZeroNimAction().set('H5-4'))
     expect(s6.board.toString()).toEqual('0,0,0,0,1')
     expect(factory.toString(s6)).toEqual('_|_|_|_|1')
@@ -124,9 +124,33 @@ describe('Nim Unit Test:', () => {
       }
       return state
     }
+    const preset = (board: string): MuZeroNimState => {
+      const state = factory.reset()
+      board.split('|').forEach((stack, heap) => {
+        state.board[heap] = stack.localeCompare('_') === 0 ? 0 : Number.parseInt(stack)
+      })
+      return state
+    }
     const s1 = simulate('H2-1:H5-2:H4-4:H1-1:H2-1:H3-3:H5-2')
     expect(factory.reward(s1, 1)).toEqual(1)
     const s2 = simulate('H4-4:H5-5:H3-3:H1-1:H2-2')
     expect(factory.reward(s2, -1)).toEqual(1)
+    const rewardTest: Array<[string, number]> = [
+      ['1|2|3|4|5', 0.1],
+      ['1|2|3|4|4', -0.1],
+      ['1|1|1|4|4', 0.1],
+      ['1|1|1|4|5', -0.1],
+      ['1|1|1|1|1', -0.1],
+      ['1|1|1|1|_', 0.1],
+      ['1|_|_|_|_', -1],
+      ['_|_|_|4|5', 0.1],
+      ['_|_|_|_|5', 0.1],
+      ['_|_|_|_|_', 1]
+    ]
+    rewardTest.forEach(([state, reward]) => {
+      const b = preset(state)
+      expect(factory.reward(b, 1)).toEqual(reward)
+      expect(factory.reward(b, -1)).toEqual(-reward)
+    })
   })
 })

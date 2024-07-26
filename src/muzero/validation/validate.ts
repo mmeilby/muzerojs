@@ -151,6 +151,9 @@ export class Validate {
    * implying that the network requires more training to achieve consistent hidden state predictions.
    */
   public testHiddenStates (network: Network): number {
+    if (this.config.supervisedRL) {
+      return 0
+    }
     return tf.tidy(() => {
       let action: Action | undefined
       let hiddenState: tf.Tensor | undefined

@@ -1,6 +1,5 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { TensorNetworkOutput } from '../networkoutput'
-import { type Batch } from '../../replaybuffer/batch'
 import { type Network } from '../nnet'
 import { type Environment } from '../../games/core/environment'
 import type { Model } from '../model'
@@ -8,49 +7,55 @@ import { type State } from '../../games/core/state'
 import type { Action } from '../../games/core/action'
 import { type NetworkState } from '../networkstate'
 import { LossLog } from './core'
+import type { ReplayBuffer } from '../../replaybuffer/replaybuffer'
 
 /**
  * Mocked network for MuZero reinforced learning
  */
 export class MockedNetwork implements Network {
-  // Length of the action tensors
-  protected readonly actionSpaceN: number
-  private readonly actionRange: Action[]
-
   constructor (
     private readonly env: Environment
   ) {
-    this.actionSpaceN = env.config().actionSpace
-    this.actionRange = env.actionRange()
   }
 
   public initialInference (state: NetworkState): TensorNetworkOutput {
-    if (state.states !== undefined) {
-      // The mocked network will respond with the perfect move
+    if (state.states === undefined) {
+      throw new Error('Game state is undefined for NetworkState')
+    }
+    // The mocked network will respond with the perfect move
+    const mockedData = tf.tidy(() => {
       const tfValues: tf.Tensor[] = []
       const tfPolicies: tf.Tensor[] = []
-      for (const gameState of state.states) {
+      for (const gameState of state.states ?? []) {
         tfValues.push(tf.tensor2d([[this.env.reward(gameState, gameState.player)]]))
         tfPolicies.push(this.env.expertActionPolicy(gameState).expandDims(0))
       }
-      const tfValue = tf.stack(tfValues)
-      const tfPolicy = tf.stack(tfPolicies)
-      const tno = new TensorNetworkOutput(tfValue, tf.zerosLike(tfValue), tfPolicy, state.hiddenState)
-      tno.state = state.states
-      return tno
-    } else {
-      throw new Error('Game state is undefined for NetworkState')
-    }
+      return {
+        value: tf.stack(tfValues),
+        policy: tf.stack(tfPolicies)
+      }
+    })
+    const tno = new TensorNetworkOutput(
+      mockedData.value,
+      tf.zerosLike(mockedData.value),
+      mockedData.policy,
+      state.hiddenState.clone()
+    )
+    tno.state = state.states
+    return tno
   }
 
   public recurrentInference (state: NetworkState, action: Action[]): TensorNetworkOutput {
-    if (state.states !== undefined) {
-      // The mocked network will respond with the perfect move
+    if (state.states === undefined) {
+      throw new Error('State is undefined for NetworkState')
+    }
+    const newStates: State[] = []
+    // The mocked network will respond with the perfect move
+    const mockedData = tf.tidy(() => {
       const tfValues: tf.Tensor[] = []
       const tfPolicies: tf.Tensor[] = []
-      const newStates: State[] = []
       const hiddenStates: tf.Tensor[] = []
-      state.states.forEach((gameState, index) => {
+      state.states?.forEach((gameState, index) => {
         const gameAction = action[index]
         const newState = this.env.step(gameState, gameAction)
         newStates.push(newState)
@@ -58,16 +63,23 @@ export class MockedNetwork implements Network {
         tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
         hiddenStates.push(newState.observation)
       })
-      const tfValue = tf.stack(tfValues)
-      const tno = new TensorNetworkOutput(tfValue, tfValue, tf.stack(tfPolicies), tf.concat(hiddenStates))
-      tno.state = newStates
-      return tno
-    } else {
-      throw new Error('State is undefined for NetworkState')
-    }
+      return {
+        value: tf.stack(tfValues),
+        policy: tf.stack(tfPolicies),
+        hiddenState: tf.concat(hiddenStates)
+      }
+    })
+    const tno = new TensorNetworkOutput(
+      mockedData.value,
+      mockedData.value,
+      mockedData.policy,
+      mockedData.hiddenState
+    )
+    tno.state = newStates
+    return tno
   }
 
-  public trainInference (_: Batch[]): LossLog {
+  public async trainInference (_: ReplayBuffer): Promise<LossLog> {
     // Return the perfect loss and accuracy of 100%
     const lossLog: LossLog = new LossLog()
     lossLog.accPolicy = 1

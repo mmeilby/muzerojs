@@ -116,6 +116,7 @@ export class SelfPlay {
   protected runMCTS (gameHistory: GameHistory, network: Network): RootNode {
     const minMaxStats = new Normalizer(this.config.normMin, this.config.normMax)
     const rootNode: Node = new RootNode(gameHistory.state.player, this.env.legalActions(gameHistory.state))
+    rootNode.state = gameHistory.state
     tf.tidy(() => {
       // At the root of the search tree we use the representation function to
       // obtain a hidden state given the current observation.
@@ -152,8 +153,26 @@ export class SelfPlay {
           tf.tidy(() => {
             // Ensure some obvious conditions:
             // - that the node is a child node and that the parent hidden state is defined
-            if (node instanceof ChildNode && parent.hiddenState !== undefined) {
-              const tno = network.recurrentInference(parent.hiddenState, [node.action])
+            if (node instanceof ChildNode) {
+              let tno
+              if (this.config.supervisedRL) {
+                if (parent.state !== undefined) {
+                  const state = this.env.step(parent.state, node.action)
+                  tno = network.initialInference(new NetworkState(state.observation, [state]))
+                  tno.tfReward = tf.scalar(this.env.reward(state, state.player))
+                  node.state = state
+                } else {
+                  // This should not happen - some inconsistency has occurred.
+                  throw new Error('Recurrent inference: parent state was unexpectedly undefined')
+                }
+              } else {
+                if (parent.hiddenState !== undefined) {
+                  tno = network.recurrentInference(parent.hiddenState, [node.action])
+                } else {
+                  // This should not happen - some inconsistency has occurred.
+                  throw new Error('Recurrent inference: hidden state was unexpectedly undefined')
+                }
+              }
               this.expandNode(node, tno)
               // Update node path with predicted value - squeeze to remove batch dimension
               this.backPropagate(nodePath, tno.value, node.player, minMaxStats)

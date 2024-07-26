@@ -125,6 +125,9 @@ describe('Muzero Self Play Unit Test:', () => {
       } else {
         debug(`Failed first move: ${root.children[top].action.id} ${util.actionToString(root.children[top].action)} V=${root.children[top].visits}`)
         debug(`Policy: ${JSON.stringify(root.policy(conf.actionSpace))}`)
+        debug(`Expert advise: A=${factory.expertActionPolicy(gameHistory.state).toString()}`)
+        const badState = factory.step(gameHistory.state, root.children[top].action)
+        debug(`Reward for this move: ${factory.reward(badState, gameHistory.state.player)}`)
       }
     }
     expect(sucess).toEqual(100)
@@ -151,9 +154,12 @@ describe('Muzero Self Play Unit Test:', () => {
         debug(`Failed second move: ${root.children[top].action.id} ${util.actionToString(root.children[top].action)} V=${root.children[top].visits}`)
         debug(`Policy: ${JSON.stringify(root.policy(conf.actionSpace))}`)
         debug(`Expert advise: A=${factory.expertActionPolicy(gameHistory.state).toString()}`)
-        selfPlayTest.debugChildren(root)
+        const badState = factory.step(gameHistory.state, root.children[top].action)
+        debug(`Reward for this move: ${factory.reward(badState, gameHistory.state.player)}`)
+        //        selfPlayTest.debugChildren(root)
       }
     }
+    // Expect at least 90% positive outcome
     expect(sucess).toBeGreaterThan(90)
   }, 10000)
   test('Check Monte Carlo Tree Search SELF PLAY', async () => {

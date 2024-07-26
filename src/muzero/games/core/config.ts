@@ -1,5 +1,4 @@
 import { type Model } from '../../networks/model'
-import { MlpNet } from '../../networks/implementations/mlp'
 
 export class Config {
   // ---------------------------------
@@ -7,8 +6,13 @@ export class Config {
 
   // Number of self-play games to keep in the replay buffer
   public replayBufferSize: number = 500
-  // Number of parts of games to train on at each training step
+  // Number of examples grouped together, or batch, between updates to the model's
+  // weights during training. A value that is too low will update weights using
+  // too few examples and will not generalize well. Larger batch sizes require
+  // more memory resources and aren't guaranteed to perform better.
   public batchSize: number = 64
+  // Number of repeated presentations of the batch during training
+  public epochs: number = 1
   // Number of game moves to keep for every batch element
   public numUnrollSteps: number = 5
   // Number of steps in the future to take into account for calculating the target value
@@ -79,8 +83,11 @@ export class Config {
   // Scale the value loss to avoid over fitting of the value function f(s),
   // paper recommends 0.25 (See paper appendix Reanalyze)
   public valueScale: number = 0.25
-
-  public modelGenerator: () => Model
+  // Switch between unsupervised and supervised reinforcement learning
+  // Unsupervised RL uses MuZero approach, supervised RL uses AlphaZero approach
+  public supervisedRL: boolean = false
+  // The model generator creates a model for reinforcement learning networks (NOTE: no default value)
+  public modelGenerator: (() => Model) | undefined
 
   /**
    * Construct the configuration object
@@ -104,6 +111,5 @@ export class Config {
     // If Monte Carlo return should always be used, set tdSteps = maxMoves
     this.tdSteps = this.actionSpace
     this.maxMoves = this.actionSpace
-    this.modelGenerator = () => new MlpNet(observationSize, actionSpace)
   }
 }

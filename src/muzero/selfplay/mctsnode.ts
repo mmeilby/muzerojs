@@ -1,6 +1,7 @@
 import * as tf from '@tensorflow/tfjs-node-gpu'
 import { type Action } from '../games/core/action'
 import { type NetworkState } from '../networks/networkstate'
+import { type State } from '../games/core/state'
 
 export class Node {
   // The number of times this node has been visited (updated on each back propagation)
@@ -13,6 +14,8 @@ export class Node {
   public prior: number
   // The hidden state this node corresponds to
   public hiddenState: NetworkState | undefined
+  // The game related state this node corresponds to
+  public state: State | undefined
   // The possible new states discovered for this node (each child relates to one of the possible actions)
   public readonly children: ChildNode[]
 

@@ -14,7 +14,7 @@
     "posttest": "npm run lint:fix",
     "prestart": "npm run build",
     "start": "DEBUG=muzero:muzero:* node dist/muzero.js",
-    "nim": "DEBUG=muzero:muzero:* node dist/nim.js",
+    "nim": "DEBUG=muzero:*:info node dist/muzero/games/nim/nimapp.js",
     "prepublishOnly": "npm run test",
     "test": "jest"
   },
@@ -22,8 +22,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@tensorflow/tfjs-node": "^4.3.0",
-    "@tensorflow/tfjs-node-gpu": "^4.3.0",
+    "@tensorflow/tfjs-node": "^4.19.0",
+    "@tensorflow/tfjs-node-gpu": "^4.19.0",
     "jstat": "^1.9.6",
     "typescript": "^5.0.2"
   },

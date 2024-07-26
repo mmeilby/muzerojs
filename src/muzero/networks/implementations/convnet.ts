@@ -163,6 +163,14 @@ export class ConvNet implements Model {
     return this.rewardModel.predict(conditionedState.expandDims(2).expandDims(3)) as tf.Tensor
   }
 
+  public async trainPolicy (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.policyModel.fit(labels, targets)
+  }
+
+  public async trainValue (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.valueModel.fit(labels, targets)
+  }
+
   public async save (path: string): Promise<void> {
     await Promise.all([
       this.representationModel.save(path + 'rp'),
@@ -217,5 +225,8 @@ export class ConvNet implements Model {
     disposed += this.dynamicsModel.dispose().numDisposedVariables
     disposed += this.rewardModel.dispose().numDisposedVariables
     return disposed
+  }
+
+  public print (): void {
   }
 }

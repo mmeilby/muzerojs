@@ -103,7 +103,7 @@ export class GameHistory {
     if (image === undefined) {
       throw new Error(`Invalid index used for makeImage(${stateIndex})`)
     }
-    return image
+    return image // TODO: make a clone of the image and tidy this like the target values
   }
 
   /**
@@ -151,7 +151,7 @@ export class GameHistory {
     const targets: Target[] = []
     // targets = []
     // const to_play = this._state.player TODO: Why is this relevant as a parameter for make_target in pseudocode? It seems to be the current player for the game history.
-    for (let currentIndex = stateIndex; currentIndex < stateIndex + numUnrollSteps + 1; currentIndex++) {
+    for (let currentIndex = stateIndex; currentIndex < stateIndex + numUnrollSteps; currentIndex++) {
       // # For simplicity the network always predicts the most recently received
       // # reward, even for the initial representation network where we already
       // # know this reward.
@@ -167,7 +167,7 @@ export class GameHistory {
         targets.push({
           value: tf.tensor2d([[this.computeTargetValue(currentIndex, tdSteps)]]),
           reward: tf.tensor2d([[lastReward]]),
-          policy: tf.softmax(tf.tensor1d(this.childVisits[currentIndex])).expandDims(0)
+          policy: tf.tidy(() => tf.softmax(tf.tensor1d(this.childVisits[currentIndex])).expandDims(0))
         })
         // targets.append((value, last_reward, self.child_visits[current_index]))
       } else {

@@ -69,12 +69,12 @@ export class ResNet implements Model {
     return await this.representationModel.trainOnBatch(labels, targets)
   }
 
-  public async trainPolicy (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
-    return await this.policyModel.trainOnBatch(labels, targets)
+  public async trainPolicy (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.policyModel.fit(labels, targets)
   }
 
-  public async trainValue (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
-    return await this.valueModel.trainOnBatch(labels, targets)
+  public async trainValue (labels: tf.Tensor, targets: tf.Tensor): Promise<tf.History> {
+    return await this.valueModel.fit(labels, targets)
   }
 
   public async trainDynamics (labels: tf.Tensor, targets: tf.Tensor): Promise<number | number[]> {
@@ -144,6 +144,9 @@ export class ResNet implements Model {
     disposed += this.dynamicsModel.dispose().numDisposedVariables
     disposed += this.rewardModel.dispose().numDisposedVariables
     return disposed
+  }
+
+  public print (): void {
   }
 
   // Batch normalisation and ReLU always go together, let's add them to the separate function

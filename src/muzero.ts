@@ -23,7 +23,7 @@ export class Muzero {
       }
     } catch (e) {
       // Error: ENOENT: no such file or directory, open 'data/path/muzero.json'
-      if ((e as Error).name.includes('ENOENT')) {
+      if ((e as Error).message.includes('ENOENT')) {
         output('Configuration file does not exist. A new file will be created.')
       } else {
         output(e)
@@ -72,5 +72,12 @@ export class Muzero {
     }).catch((err) => {
       output(err)
     })
+  }
+
+  public printModels (conf: Config): void {
+    if (conf.modelGenerator !== undefined) {
+      const model = conf.modelGenerator()
+      model.print()
+    }
   }
 }
