@@ -218,9 +218,12 @@ export class GameHistory {
 
   /**
    * Validate end state for current game.
-   * The validation lies in the range [0; 1]. A result of 1 indicates the most desired outcome from trained network perspective.
+   * A result of 1 indicates the most desired game play from trained network perspective.
+   * All other outcomes are rewarded with 0.
    * The validation can be used to tell how well the network responds.
-   * Validation depends on the model, however the parameters used for validation are: player to take last action and the reward for that action.
+   * Validation depends on the model, however the parameters used for validation are:
+   *    player to take last action
+   *    the reward for that action.
    */
   public validateEndState (): number {
     return this.environment.validateReward(this.toPlayHistory.at(-1) ?? 0, this.rewards.at(-1) ?? 0)

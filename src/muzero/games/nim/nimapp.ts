@@ -8,7 +8,7 @@ conf.batchSize = 16
 conf.epochs = 3
 conf.replayBufferSize = 1024
 conf.checkpointInterval = 100
-conf.lrInit = 0.001
+conf.lrInit = 0.005
 conf.savedNetworkPath = 'nimv5'
 conf.supervisedRL = true
 if (process.env.PRINT !== undefined) {

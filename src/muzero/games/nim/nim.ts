@@ -107,6 +107,12 @@ export class MuZeroNim implements Environment {
     }
   }
 
+  /**
+   * Validate reward in the aspect of player making the first move (player 1)
+   * Returns 1 if player 1 wins, otherwise 0
+   * @param player The player to make the final move
+   * @param reward The reward for the final move
+   */
   public validateReward (player: number, reward: number): number {
     const winner = player * reward
     return winner > 0 ? 1 : 0

@@ -150,7 +150,11 @@ export class ReplayBuffer {
   }
 
   /**
-   * performance - return the percentage of optimal game play
+   * Estimate replay buffer performance
+   * The return value is the percentage of most desired game play from trained network perspective
+   * iterated over all game plays in the replay buffer.
+   * The more distinct the policy responses are the higher percentage should be expected as the self play
+   * engine randomly selects the best move weighted by the policies
    */
   public performance (): number {
     const performanceTotal = this.buffer.reduce((s, game) => s + game.validateEndState(), 0)
