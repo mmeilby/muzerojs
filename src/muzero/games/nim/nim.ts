@@ -142,6 +142,7 @@ export class MuZeroNim implements Environment {
     return tf.tidy(() => {
       const indices = tf.tensor1d(actionIds, 'int32')
       const values = tf.softmax(tf.tensor1d(policy))
+      // const values = tf.tensor1d(policy)
       return tf.sparseToDense(indices, values, [this.actionSpace])
     })
   }

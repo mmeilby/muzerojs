@@ -14,6 +14,7 @@ import { NetworkState } from '../networks/networkstate'
 
 const info = debugFactory('muzero:selfplay:info')
 const log = debugFactory('muzero:selfplay:log')
+const test = debugFactory('muzero:selfplay:test')
 const debug = debugFactory('muzero:selfplay:debug')
 
 /**
@@ -36,22 +37,47 @@ export class SelfPlay {
    * writing it to a shared replay buffer.
    * @param storage
    * @param replayBuffer
-   * @param preload
+   * @param reanalyseFactor
    */
-  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer, preload: boolean = false): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer, reanalyseFactor: number = 1.0): Promise<void> {
     info('Self play initiated')
     // Produce game plays as long as the training module runs
     do {
       const network = storage.latestNetwork()
-      const game = this.playGame(network)
-      replayBuffer.saveGame(game)
-      log(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
-      log('Played: %s', game.state.toString())
-      if (!(preload && replayBuffer.totalGames < this.config.replayBufferSize)) {
-        await tf.nextFrame()
+      if (Math.random() >= reanalyseFactor) {
+        for (const gameHistory of replayBuffer.games) {
+          const gameHistoryCopy = this.reanalyse(network, gameHistory)
+          gameHistory.updateSearchStatistics(gameHistoryCopy)
+          // If game priorities are used then reset for new root values
+          replayBuffer.setGamePriority(gameHistory)
+        }
+      } else {
+        const game = this.playGame(network)
+        replayBuffer.saveGame(game)
+        log(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
+        log('Played: %s', game.state.toString())
       }
+      //      if (!(preload && replayBuffer.totalGames < this.config.replayBufferSize)) {
+      await tf.nextFrame()
+      //      }
     } while (storage.networkCount < this.config.trainingSteps)
     info('Self play completed')
+  }
+
+  /**
+   * Decide the best move for current state
+   * The method uses Monte Carlo Tree Search to support the network policy responses
+   * @param gameHistory Game history to track the state and progress
+   * @param network Trained network to qualify decisions
+   * @returns The best Action to do based on the current state
+   */
+  public decide (gameHistory: GameHistory, network: Network): Action {
+    const rootNode = this.runMCTS(gameHistory, network)
+    const action = gameHistory.historyLength() === 0
+      ? this.gumbelMuZeroRootActionSelection(rootNode, this.config.simulations + 1, this.config.actionSpace)
+      : this.gumbelMuzeroInteriorActionSelection(rootNode)
+    rootNode.disposeHiddenStates()
+    return action
   }
 
   /**
@@ -68,21 +94,46 @@ export class SelfPlay {
     // Play a game from start to end, register target data on the fly for the game history
     while (!gameHistory.terminal() && gameHistory.historyLength() < this.config.maxMoves) {
       const rootNode = this.runMCTS(gameHistory, network)
-      const action = this.selectAction(rootNode)
-      if (debug.enabled) {
+      //      const action = this.selectAction(rootNode)
+      const action = gameHistory.historyLength() === 0
+        ? this.gumbelMuZeroRootActionSelection(rootNode, this.config.simulations + 1, this.config.actionSpace)
+        : this.gumbelMuzeroInteriorActionSelection(rootNode)
+      if (test.enabled) {
         const recommendedAction = this.env.expertAction(gameHistory.state)
-        debug(`--- Recommended: ${recommendedAction.id ?? -1}`)
+        test(`--- Recommended: ${recommendedAction.id ?? -1}`)
       }
       gameHistory.apply(action)
       gameHistory.storeSearchStatistics(rootNode)
       rootNode.disposeHiddenStates()
-      debug(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
+      test(`--- Best action: ${action.id ?? -1} ${gameHistory.state.toString()}`)
     }
     log(`--- STAT(${index}): number of game steps: ${gameHistory.actionHistory.length}`)
     log(`--- VALUES:  ${JSON.stringify(gameHistory.rootValues.map(v => v.toFixed(2)))}`)
     log(`--- REWARD:  ${gameHistory.rewards.toString()} (${gameHistory.rewards.reduce((s, r) => s + r, 0)})`)
     log(`--- WINNER: ${(gameHistory.toPlayHistory.at(-1) ?? 0) * (gameHistory.rewards.at(-1) ?? 0) > 0 ? '1' : '2'}`)
     return gameHistory
+  }
+
+  /**
+   * reanalyse - replay a full game using the network to update policy and value targets
+   * Each game is produced by starting at the initial board position, then
+   * repeatedly executing a Monte Carlo Tree Search to generate updates until the end
+   * of the game is reached.
+   * @param network
+   * @param gameHistory
+   * @private
+   */
+  private reanalyse (network: Network, gameHistory: GameHistory): GameHistory {
+    const gameHistoryCopy = new GameHistory(this.env, this.config)
+    // Reanalyse a game from start to end, register target data on the fly for the game history
+    for (const action of gameHistory.actionHistory) {
+      const rootNode = this.runMCTS(gameHistoryCopy, network)
+      gameHistoryCopy.apply(action)
+      gameHistoryCopy.storeSearchStatistics(rootNode)
+      rootNode.disposeHiddenStates()
+    }
+    log(`--- NEW VALUES:  ${JSON.stringify(gameHistoryCopy.rootValues.map(v => v.toFixed(2)))}`)
+    return gameHistoryCopy
   }
 
   /**
@@ -114,7 +165,6 @@ export class SelfPlay {
    * @private
    */
   protected runMCTS (gameHistory: GameHistory, network: Network): RootNode {
-    const minMaxStats = new Normalizer(this.config.normMin, this.config.normMax)
     const rootNode: Node = new RootNode(gameHistory.state.player, this.env.legalActions(gameHistory.state))
     rootNode.state = gameHistory.state
     tf.tidy(() => {
@@ -138,14 +188,14 @@ export class SelfPlay {
         const nodePath: Node[] = [rootNode]
         const debugSearchTree: number[] = []
         while (node.isExpanded()) {
-          const selectedNode = this.selectChild(node, minMaxStats)
+          const selectedNode = this.selectChild(node)
           nodePath.unshift(selectedNode)
-          if (debug.enabled) {
+          if (test.enabled) {
             debugSearchTree.push(selectedNode.action?.id ?? -1)
           }
           node = selectedNode
         }
-        debug(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')}, node probability=${node.prior.toFixed(2)}`)
+        test(`--- MCTS: Simulation: ${sim + 1}: ${debugSearchTree.join('->')}, node probability=${node.prior.toFixed(2)}`)
         // Inside the search tree we use the dynamics function to obtain the next
         // hidden state given an action and the previous hidden state (obtained from parent node).
         if (nodePath.length > 1) {
@@ -159,7 +209,7 @@ export class SelfPlay {
                 if (parent.state !== undefined) {
                   const state = this.env.step(parent.state, node.action)
                   tno = network.initialInference(new NetworkState(state.observation, [state]))
-                  tno.tfReward = tf.scalar(this.env.reward(state, state.player))
+                  tno.tfReward = tf.scalar(this.env.reward(state, parent.player))
                   node.state = state
                 } else {
                   // This should not happen - some inconsistency has occurred.
@@ -174,8 +224,12 @@ export class SelfPlay {
                 }
               }
               this.expandNode(node, tno)
+              // adjust reward for root node perspective - if root node player and parent player are not the same reverse the reward
+              if (!rootNode.samePlayer(parent.player)) {
+                node.reward *= -1
+              }
               // Update node path with predicted value - squeeze to remove batch dimension
-              this.backPropagate(nodePath, tno.value, node.player, minMaxStats)
+              this.backPropagate(nodePath, tno.value)
               // Save the hidden state from being disposed by tf.tidy()
               return tno.tfHiddenState
             } else {
@@ -185,8 +239,8 @@ export class SelfPlay {
             }
           })
         } else {
-          debug('Recurrent inference attempted on a root node')
-          debug(`State: ${gameHistory.state.toString()}`)
+          test('Recurrent inference attempted on a root node')
+          test(`State: ${gameHistory.state.toString()}`)
           throw new Error('Recurrent inference attempted on a root node. Root node was not fully expanded.')
         }
       }
@@ -206,6 +260,10 @@ export class SelfPlay {
     node.hiddenState = new NetworkState(networkOutput.tfHiddenState, networkOutput.state)
     // save network predicted reward - squeeze to remove batch dimension
     node.reward = networkOutput.reward
+    // save network predicted value (used by Q transformation with mix values)
+    node.rawValue = networkOutput.value
+    // configure value discount for Q-value
+    node.discount = this.config.decayingParam
     // save network predicted value - squeeze to remove batch dimension
     const policy = networkOutput.policy
     for (const action of node.possibleActions) {
@@ -213,6 +271,27 @@ export class SelfPlay {
       // The tree search will find the true possible actions
       const child = node.addChild([...this.actionRange], action)
       child.prior = policy[action.id] ?? 0
+    }
+  }
+
+  /**
+   * backPropagate - At the end of a simulation, we propagate the evaluation all the way up the
+   * tree to the root.
+   * @param nodePath queue of nodes traversed from the root before finding the node to be expanded
+   * @param rawValue the network predicted long-term prospect from the current node onward
+   * @private
+   */
+  protected backPropagate (nodePath: Node[], rawValue: number): void {
+    let value = rawValue
+    for (const node of nodePath) {
+      // register visit
+      node.visits++
+      // The following adds the value to the mean value
+      // Could also be expressed the following way before node.visits++:
+      //    node.value = (node.value * node.visits + value) / (node.visits + 1)
+      node.value += (value - node.value) / node.visits
+      // decay value and include network predicted reward
+      value = node.reward + this.config.decayingParam * value
     }
   }
 
@@ -242,24 +321,21 @@ export class SelfPlay {
   /**
    * Select the child node with the highest UCB score
    * @param node
-   * @param minMaxStats
    * @private
    */
-  private selectChild (node: Node, minMaxStats: Normalizer): ChildNode {
+  private selectChild (node: Node): ChildNode {
     if (node.children.length === 0) {
       throw new Error('SelectChild: No children available for selection.')
     }
     if (node.children.length === 1) {
       return node.children[0]
     }
-    const ucbTable = node.children.map(child => this.ucbScore(node, child, minMaxStats))
-    let bestNode = 0
-    let bestUCB = ucbTable[bestNode]
-    ucbTable.forEach((ucb, index: number) => {
-      if (bestUCB < ucb) {
-        bestNode = index
-        bestUCB = ucb
-      }
+    const minMaxStats = new Normalizer(this.config.normMin, this.config.normMax)
+    const initQValue = this.calculateInitQValue(node, minMaxStats)
+    const ucbTable = node.children.map(child => this.ucbScore(node.visits, child, minMaxStats, initQValue))
+    const bestNode = tf.tidy(() => {
+      const puct = tf.tensor1d(ucbTable)
+      return puct.argMax().bufferSync().get(0)
     })
     return node.children[bestNode]
   }
@@ -269,11 +345,11 @@ export class SelfPlay {
    * on the prior (P - predicted probability of choosing the action that leads to this node)
    *    Upper Confidence Bound
    *    ```U(s,a) = Q(s,a) + c * P(s,a) * sqrt(N(s)) / (1 + N(s,a))```
-   *    Q(s,a): the expected reward for taking action a from state s, i.e. the Q values
+   *    Q(s,a): valueScore - the expected reward for taking action a from state s, i.e. the Q values
    *    N(s,a): the number of times we took action a from state s across simulation
    *    N(s): the sum of all visits at state s across simulation
    *    P(s,a): the initial estimate of taking an action a from the state s according to the
-   *    policy returned by the current neural network.
+   *    policy returned by the current neural network. Part of the policyScore.
    *    c is a hyperparameter that controls the degree of exploration. The specific choice of c depends on
    *    the problem domain and the trade-off between exploration and exploitation that you want to achieve.
    *    Typically, you might choose c empirically through experimentation or use domain knowledge to guide its selection.
@@ -282,48 +358,399 @@ export class SelfPlay {
    *    encourage more initial exploration, you might lean towards larger values of c - like c = 2.
    * The point of the UCB is to initially prefer actions with high prior probability (P) and low visit count (N),
    * but asymptotically prefer actions with a high action value (Q).
-   * @param parent
+   * @param totalVisits N(s)
    * @param child
    * @param minMaxStats
-   * @param exploit
+   * @param initQValue mean Q(s,a) for all visited children
    * @private
    */
-  private ucbScore (parent: Node, child: ChildNode, minMaxStats: Normalizer, exploit = false): number {
-    if (exploit) {
-      // For exploitation only we simply measure the number of visits
-      // Pseudo code actually calculates exp(child.visits / temp) / sum(exp(child.visits / temp))
-      return child.visits
-    }
-    const c = Math.log((parent.visits + this.config.pbCbase + 1) / this.config.pbCbase) + this.config.pbCinit
-    const q = child.visits > 0 ? child.reward + child.value() * this.config.decayingParam : 0
-    const Q = child.visits > 0 ? minMaxStats.normalize(q) : 0
-    if (debug.enabled) {
-      if (Math.abs(Q - q) > 0) {
-        debug(`Normalize reduced the reward ${Q} from ${q}`)
-      }
-    }
-    return Q + c * child.prior * Math.sqrt(parent.visits) / (1 + child.visits)
+  private ucbScore (totalVisits: number, child: ChildNode, minMaxStats: Normalizer, initQValue: number): number {
+    const valueScore = child.visits > 0 ? minMaxStats.normalize(child.qValue()) : initQValue
+    const c = this.config.pbCinit + Math.log((1 + totalVisits + this.config.pbCbase) / this.config.pbCbase)
+    const policyScore = c * child.prior * Math.sqrt(totalVisits) / (1 + child.visits)
+    return valueScore + policyScore
+  }
+
+  // Estimate Q value for non-visited actions
+  private calculateInitQValue (parent: Node, minMaxStats: Normalizer): number {
+    const qValues = parent.children.filter(child => child.visits > 0).map(child => child.qValue())
+    // initialize min/max bounds
+    minMaxStats.update(parent.qValue())
+    // prepare for normalization
+    qValues.forEach(qValue => {
+      minMaxStats.update(qValue)
+    })
+    return minMaxStats.normalize(qValues.reduce((sum, qValue) => sum + qValue, 0) / (qValues.length + 1))
+  }
+
+  /** seq_halving.py - Functions for Sequential Halving
+   * Returns the action selected by Sequential Halving with Gumbel.
+   *
+   *   Initially, we sample `max_num_considered_actions` actions without replacement.
+   *   From these, the actions with the highest `gumbel + logits + qvalues` are
+   *   visited first.
+   *
+   *      Require: k: number of actions.
+   *      Require: m ≤ k: number of actions sampled without replacement.
+   *      Require: n: number of simulations.
+   *      Require: logits ∈ Rk: predictor logits from a policy network π.
+   *        Sample k Gumbel variables:
+   *          (g ∈ Rk) ∼ Gumbel(0)
+   *        Find m actions with the highest g(a) + logits(a):
+   *          Atopm = argtop(g + logits, m)
+   *        Use Sequential Halving with n simulations to identify the best action from the Atopm actions,
+   *        by comparing g(a) + logits(a) + σ(ˆq(a)).
+   *          An+1 = argmax a∈Remaining(g(a) + logits(a) + σ(ˆq(a)))
+   *        return An+1
+   *
+   * @param rootNode the node from which to take an action.
+   * @param numSimulations the simulation budget.
+   * @param maxNumConsideredActions the number of actions sampled without replacement.
+   * @returns action: the action selected from the given node.
+   * @protected
+   */
+  protected gumbelMuZeroRootActionSelection (rootNode: Node, numSimulations: number, maxNumConsideredActions: number): Action {
+    // Get the table of considered visits
+    const table = this.getTableOfConsideredVisits(maxNumConsideredActions, numSimulations)
+    // Get the number of actions to be considered
+    const numConsidered = Math.min(maxNumConsideredActions, rootNode.possibleActions.length)
+    // At the root, simulationIndex equals the sum of visit counts
+    const simulationIndex = rootNode.children.reduce((s, child) => s + child.visits, 0)
+    // Fetch considered visit from the table
+    const consideredVisit = table[numConsidered][simulationIndex]
+
+    const actionIndex = tf.tidy(() => {
+      const priorLogits = rootNode.childrenLogits(this.config.actionSpace)
+      const completedQvalues = this.qtransformCompletedByMixValue(rootNode)
+
+      // Calculate the score of the considered actions
+      const toArgmax = this.scoreConsidered(
+        consideredVisit,
+        priorLogits,
+        completedQvalues,
+        rootNode.childrenVisits(this.config.actionSpace)
+      )
+
+      // Mask the invalid actions at the root
+      return this.maskedArgmax(toArgmax, rootNode.possibleActions)
+    })
+    return rootNode.possibleActions[actionIndex]
   }
 
   /**
-   * backPropagate - At the end of a simulation, we propagate the evaluation all the way up the
-   * tree to the root.
-   * @param nodePath
-   * @param nValue
-   * @param player
-   * @param minMaxStats
+   * Selects the action with a deterministic action selection.
+   *
+   *   The action is selected based on the visit counts to produce visitation
+   *   frequencies similar to softmax(prior_logits + qvalues).
+   *
+   * @param node the node from which to take an action.
+   * @returns action: the action selected from the given node.
+   * @protected
+   */
+  protected gumbelMuzeroInteriorActionSelection (
+    node: Node
+  ): Action {
+    const actionIndex = tf.tidy(() => {
+      // Extract visit counts and prior logits for the given node.
+      const visitCounts = node.childrenVisits(this.config.actionSpace)
+      const priorLogits = node.childrenLogits(this.config.actionSpace)
+      // Calculate completed Q-values using the provided qtransform function.
+      const completedQvalues = this.qtransformCompletedByMixValue(node)
+
+      debug(`visits: ${visitCounts.toString()}`)
+      debug(`prior: ${priorLogits.toString()}`)
+      debug(`Qvalues: ${completedQvalues.toString()}`)
+
+      // Compute `prior_logits + completed_qvalues` for an improved policy.
+      const logitsPlusQvalues: tf.Tensor1D = tf.add(priorLogits, completedQvalues)
+      debug(`logitsPlusQvalues: ${logitsPlusQvalues.toString()}`)
+      const softmaxValues: tf.Tensor1D = tf.softmax(logitsPlusQvalues)
+      debug(`softmaxValues: ${softmaxValues.toString()}`)
+      // Prepare the input for argmax selection based on visit counts and softmax values.
+      const toArgmax = this.prepareArgmaxInput(softmaxValues, visitCounts)
+      // Use argmax to select the action.
+      debug(`toArgMax: ${toArgmax.toString()}`)
+      return softmaxValues.argMax().bufferSync().get(0)
+    })
+    return node.children.find(child => child.action.id === actionIndex)?.action ?? node.children[0].action
+  }
+
+  /**
+   * Prepares the input for the deterministic selection.
+   *
+   *   When calling argmax(_prepare_argmax_input(...)) multiple times
+   *   with updated visit_counts, the produced visitation frequencies will
+   *   approximate the probs.
+   *
+   *   For the derivation, see Section 5 "Planning at non-root nodes" in
+   *   "Policy improvement by planning with Gumbel":
+   *   https://openreview.net/forum?id=bERaNdoegnO
+   *
+   * @param probs a policy or an improved policy. Shape `[num_actions]`.
+   * @param visitCounts the existing visit counts. Shape `[num_actions]`.
+   * @returns The input to an argmax. Shape `[num_actions]`.
    * @private
    */
-  private backPropagate (nodePath: Node[], nValue: number, player: number, minMaxStats: Normalizer): void {
-    let value = nValue
-    for (const node of nodePath) {
-      // register visit
-      node.visits++
-      node.valueSum += node.samePlayer(player) ? value : -value
-      debug(`value: ${value} reward: ${node.reward} c-player: ${node.player} player: ${player} c-value: ${node.value()} sum: ${node.valueSum} visits: ${node.visits}`)
-      minMaxStats.update(node.value())
-      // decay value and include network predicted reward
-      value = node.reward + this.config.decayingParam * value
+  private prepareArgmaxInput (probs: tf.Tensor1D, visitCounts: tf.Tensor1D): tf.Tensor {
+    // Ensure probs and visitCounts have the same shape.
+    if (probs.shape[0] !== visitCounts.shape[0]) {
+      throw new Error('probs and visitCounts must have the same shape')
     }
+
+    // Calculate the sum of visit counts and reshape to keep dimensions.
+    const sumVisitCounts = tf.sum(visitCounts).reshape([1])
+    debug(`sumVisits: ${sumVisitCounts.toString()}`)
+
+    // Compute the argmax input using `probs - visitCounts / (1 + sumVisitCounts)`.
+    const adjustedVisitCounts = tf.div(visitCounts, tf.add(1, sumVisitCounts))
+    debug(`adjustedVisitCounts: ${adjustedVisitCounts.toString()}`)
+    return tf.sub(probs, adjustedVisitCounts)
+  }
+
+  /**
+   * Returns a valid action with the highest `to_argmax`.
+   * @param toArgmax
+   * @param possibleActions
+   * @private
+   */
+  private maskedArgmax (toArgmax: tf.Tensor, possibleActions: Action[]): number {
+    return tf.tidy(() => {
+      const actionMap = tf.oneHot(tf.tensor1d(possibleActions.map(action => action.id), 'int32'), toArgmax.shape[0], 1, 0, 'bool')
+      // Set -Infinity for invalid actions
+      const maskedValues = tf.where(actionMap, toArgmax, tf.fill(toArgmax.shape, -Infinity))
+      // Return index of the maximum valid action
+      return maskedValues.argMax(-1).cast('int32').bufferSync().get(0)
+    })
+  }
+
+  /**
+   * Returns completed qvalues.
+   *
+   *   The missing Q-values of the unvisited actions are replaced by the
+   *   mixed value, defined in Appendix D of
+   *   "Policy improvement by planning with Gumbel":
+   *   https://openreview.net/forum?id=bERaNdoegnO
+   *
+   *   The Q-values are transformed by a linear transformation:
+   *     `(maxvisit_init + max(visit_counts)) * value_scale * qvalues`.
+   *
+   * @param node the parent node.
+   * @returns Completed Q-values. Shape `[num_actions]`.
+   * @private
+   */
+  private qtransformCompletedByMixValue (node: Node): tf.Tensor1D {
+    // scale for the Q-values.
+    const valueScale = 0.1
+    // offset to the `max(visit_counts)` in the scaling factor.
+    const maxvisitInit = 50.0
+    // if True, scale the qvalues by `1 / (max_q - min_q)`.
+    const rescaleValues = true
+    // if True, complete the Q-values with mixed value, otherwise complete the Q-values with the raw value.
+    const useMixedValue = true
+    // the minimum denominator when using `rescale_values`.
+    const epsilon = 1e-8
+
+    const qvalues = node.qValues(this.config.actionSpace)
+    const visitCounts = node.childrenVisits(this.config.actionSpace)
+
+    debug(`visits: ${visitCounts.toString()}`)
+    debug(`Qvalues: ${qvalues.toString()}`)
+
+    // Compute mixed value and produce completed Qvalues
+    const rawValue = node.rawValue
+    const priorProbs = tf.softmax(node.childrenLogits(this.config.actionSpace))
+    debug(`priorProps: ${priorProbs.toString()}`)
+    const value = useMixedValue ? this.computeMixedValue(rawValue, qvalues, visitCounts, priorProbs) : rawValue
+    debug(`value: ${value}`)
+    let completedQvalues = this.completeQvalues(qvalues, visitCounts, value)
+    debug(`completedQvalues: ${completedQvalues.toString()}`)
+
+    // Scale Q-values if required
+    if (rescaleValues) {
+      completedQvalues = this.rescaleQvalues(completedQvalues, epsilon)
+      debug(`scaled completedQvalues: ${completedQvalues.toString()}`)
+    }
+    const maxvisit = tf.max(visitCounts)
+    debug(`maxvisits: ${maxvisit.toString()}`)
+    const visitScale = tf.add(maxvisitInit, maxvisit)
+    debug(`visitScale: ${visitScale.toString()}`)
+    return tf.mul(tf.mul(visitScale, valueScale), completedQvalues)
+  }
+
+  /**
+   * Rescales the given completed Q-values to be from the [0, 1] interval.
+   * @param qvalues
+   * @param epsilon
+   * @private
+   */
+  private rescaleQvalues (qvalues: tf.Tensor1D, epsilon: number): tf.Tensor1D {
+    const minValue = tf.min(qvalues)
+    const maxValue = tf.max(qvalues)
+    return tf.div(tf.sub(qvalues, minValue), tf.maximum(tf.sub(maxValue, minValue), epsilon))
+  }
+
+  /**
+   * Returns completed Q-values, with the `value` for unvisited actions.
+   * @param qvalues
+   * @param visitCounts
+   * @param value
+   * @private
+   */
+  private completeQvalues (qvalues: tf.Tensor1D, visitCounts: tf.Tensor1D, value: number): tf.Tensor1D {
+    // Replace missing Q-values with value for unvisited actions
+    return tf.where(tf.greater(visitCounts, 0), qvalues, tf.fill([qvalues.shape[0]], value))
+  }
+
+  /**
+   * Interpolates the raw_value and weighted qvalues.
+   *
+   * @param rawValue an approximate value of the state.
+   * @param qvalues Q-values for all actions. Shape `[num_actions]`. The unvisited
+   *       actions have undefined Q-value.
+   * @param visitCounts the visit counts for all actions. Shape `[num_actions]`.
+   * @param priorProbs the action probabilities, produced by the policy network for
+   *       each action. Shape `[num_actions]`.
+   * @returns An estimator of the state value.
+   * @private
+   */
+  private computeMixedValue (rawValue: number, qvalues: tf.Tensor1D, visitCounts: tf.Tensor1D, priorProbs: tf.Tensor1D): number {
+    return tf.tidy(() => {
+      const sumVisitCounts = tf.sum(visitCounts)
+      // Ensuring non-nan weighted_q, even if the visited actions have zero prior probability.
+      const probs = tf.maximum(tf.fill(priorProbs.shape, Number.EPSILON), priorProbs)
+      // Summing the probabilities of the visited actions.
+      const sumProbs = tf.sum(tf.where(tf.greater(visitCounts, 0), probs, 0))
+      const weightedQ = tf.sum(
+        tf.where(
+          tf.greater(visitCounts, 0),
+          tf.div(tf.mul(probs, qvalues), tf.where(tf.greater(visitCounts, 0), sumProbs, 1)),
+          0
+        )
+      )
+      return tf.div(tf.add(rawValue, tf.mul(sumVisitCounts, weightedQ)), tf.add(sumVisitCounts, 1)).bufferSync().get(0)
+    })
+  }
+
+  /**
+   * Returns a sequence of visit counts considered by Sequential Halving.
+   *
+   *   Sequential Halving is a "pure exploration" algorithm for bandits, introduced
+   *   in "Almost Optimal Exploration in Multi-Armed Bandits":
+   *   http://proceedings.mlr.press/v28/karnin13.pdf
+   *
+   *   The visit counts allows to implement Sequential Halving by selecting the best
+   *   action from the actions with the currently considered visit count.
+   *
+   *      Require: k: number of actions.
+   *      Require: m ≤ k: number of actions sampled without replacement.
+   *      Require: n: number of simulations.
+   *      Require: logits ∈ Rk: predictor logits from a policy network π.
+   *        Sample k Gumbel variables:
+   *          (g ∈ Rk) ∼ Gumbel(0)
+   *        Find m actions with the highest g(a) + logits(a):
+   *          Atopm = argtop(g + logits, m)
+   *        Use Sequential Halving with n simulations to identify the best action from the Atopm actions,
+   *        by comparing g(a) + logits(a) + σ(ˆq(a)).
+   *          An+1 = arg maxa∈Remaining (g(a) + logits(a) + σ(ˆq(a)))
+   *        return An+1
+   *
+   * @param maxNumConsideredActions The maximum number of considered actions.
+   *      The `maxNumConsideredActions` can be smaller than the number of actions.
+   * @param numSimulations The total simulation budget.
+   * @returns A array with visit counts. Length `num_simulations`.
+   *
+   */
+  private getSequenceOfConsideredVisits (maxNumConsideredActions: number, numSimulations: number): number[] {
+    if (maxNumConsideredActions <= 1) {
+      return Array.from({ length: numSimulations }, (_, i) => i)
+    }
+
+    const log2max = Math.ceil(Math.log2(maxNumConsideredActions))
+    const visits: number[] = new Array(maxNumConsideredActions).fill(0)
+
+    const sequence: number[] = []
+    let numConsidered = maxNumConsideredActions
+    while (sequence.length < numSimulations) {
+      const numExtraVisits = Math.max(1, Math.floor(numSimulations / (log2max * numConsidered)))
+      for (let i = 0; i < numExtraVisits; i++) {
+        sequence.push(...visits.slice(0, numConsidered))
+        for (let j = 0; j < numConsidered; j++) {
+          visits[j]++
+        }
+      }
+      // Halve the number of considered actions
+      numConsidered = Math.max(2, Math.floor(numConsidered / 2))
+    }
+    return sequence.slice(0, numSimulations)
+  }
+
+  /**
+   * Returns a table of sequences of visit counts.
+   *
+   * @param maxNumConsideredActions The maximum number of considered actions (the number of actions sampled without
+   *       replacement). The `maxNumConsideredActions` can be smaller than the number of actions.
+   * @param numSimulations The total simulation budget.
+   * @returns A tuple of sequences of visit counts.
+   *     Shape [max_num_considered_actions + 1, num_simulations].
+   *
+   */
+  protected getTableOfConsideredVisits (maxNumConsideredActions: number, numSimulations: number): number[][] {
+    return Array.from({ length: maxNumConsideredActions + 1 }, (_, m) =>
+      this.getSequenceOfConsideredVisits(m, numSimulations)
+    )
+  }
+
+  /**
+   * Returns a score usable for an argmax.
+   *
+   * @param consideredVisit
+   * @param logits
+   * @param normalizedQvalues
+   * @param visitCounts
+   */
+
+  private scoreConsidered (
+    consideredVisit: number,
+    logits: tf.Tensor1D,
+    normalizedQvalues: tf.Tensor1D,
+    visitCounts: tf.Tensor1D
+  ): tf.Tensor {
+    const lowLogit = -1e9
+
+    // Normalize logits by subtracting max value for numerical stability
+    const maxLogits = logits.max(-1, true)
+    logits = logits.sub(maxLogits)
+
+    // Create penalty where only children with considered visits are not penalized
+    const penalty = tf.where(
+      tf.equal(visitCounts, consideredVisit),
+      tf.zerosLike(visitCounts),
+      tf.fill(visitCounts.shape, -Infinity)
+    )
+
+    const loc = 0.0
+    const scale = 1.0
+    const gumbel = tf.tidy(() => {
+      // Step 1: Generate uniform random numbers in (0, 1)
+      const U = tf.randomUniform(logits.shape, 0, 1)
+      // Step 2: Apply the Gumbel transformation: loc - scale * log(-log(U))
+      const negLogU = tf.neg(tf.log(tf.neg(tf.log(U))))
+      return tf.add(tf.mul(negLogU, scale), loc)
+    })
+
+    // Ensure shapes match
+    tf.util.assertShapesMatch(
+      gumbel.shape,
+      normalizedQvalues.shape,
+      'Shape mismatch between \'gumbel\' and \'normalizedQvalues\''
+    )
+    tf.util.assertShapesMatch(
+      gumbel.shape,
+      penalty.shape,
+      'Shape mismatch between \'gumbel\' and \'penalty\''
+    )
+
+    // Compute final score
+    return tf.maximum(tf.fill(gumbel.shape, lowLogit), gumbel.add(logits).add(normalizedQvalues)).add(penalty)
   }
 }

@@ -22,6 +22,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@stdlib/stats-base-dists-gumbel": "^0.2.2",
     "@tensorflow/tfjs-node": "^4.19.0",
     "@tensorflow/tfjs-node-gpu": "^4.19.0",
     "jstat": "^1.9.6",

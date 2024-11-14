@@ -52,10 +52,13 @@ describe('Network Unit Test:', () => {
   test('Check mocked random battle', () => {
     const validate = new Validate(config, factory)
     let deviation = 0
-    for (let i = 0; i < 100; i++) {
-      deviation += validate.battle(mockedNetwork, i % 2 === 0 ? 1 : -1)
+    for (let i = 0; i < 10; i++) {
+      const aiPlayer = i % 2 === 0 ? 1 : -1
+      deviation += validate.battle(mockedNetwork, aiPlayer)
     }
-    expect(deviation).toBeGreaterThan(49)
+    debug(`AI wins ${deviation}`)
+    // Expect AI to win all matches
+    expect(deviation).toEqual(10)
   })
   test('Check recurrent inference state shape for NimNet', () => {
     config.modelGenerator = () => new NimNet(config)

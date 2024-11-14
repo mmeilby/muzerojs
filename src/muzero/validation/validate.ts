@@ -8,6 +8,8 @@ import type { Environment } from '../games/core/environment'
 import type { SummaryFileWriter } from '@tensorflow/tfjs-node-gpu/dist/tensorboard'
 import { type SharedStorage } from '../training/sharedstorage'
 import { type State } from '../games/core/state'
+import { GameHistory } from '../selfplay/gamehistory'
+import { SelfPlay } from '../selfplay/selfplay'
 
 const perf = debugFactory('muzero:validate:perf')
 const output = debugFactory('muzero:muzero:output')
@@ -92,7 +94,7 @@ export class Validate {
    *
    * Invalid outcome prediction is quantified as the mean probability of predicting any disallowed action across multiple game simulations. A higher mean probability indicates that the network requires more training to correctly predict valid actions. Only game states with at least one valid action are considered in this measurement.
    * @param network The network to use for the measurement
-   * @returns number: The mean probability of predicting invalid outcomes over a number of random game states.
+   * @returns number: The mean probability (%) of predicting invalid outcomes over a number of random game states.
    * <ul>
    * <li>A mean probability of 0 indicates perfect prediction, where no invalid actions are predicted.</li>
    * <li>A higher mean probability suggests that the network often predicts disallowed actions,
@@ -195,27 +197,22 @@ export class Validate {
    */
   public battle (network: Network, aiPlayer: number): number {
     const actionRange = this.env.actionRange()
-    let state = this.env.reset()
+    const gameHistory = new GameHistory(this.env, this.config)
+    const mcts = new SelfPlay(this.config, this.env)
     // Play a game from start to end, register target data on the fly for the game history
-    while (!this.env.terminal(state)) {
-      perf(`--- Battle state: ${state.toString()}`)
-      if (state.player === aiPlayer) {
-        tf.tidy(() => {
-          const networkOutput = network.initialInference(new NetworkState(state.observation, [state]))
-          // Map/mask the policy to legal moves according to the environment
-          const legalPolicy: number[] = this.legalPolicy(state, networkOutput.policy)
-          const a = this.randomChoice(legalPolicy)
-          const action = actionRange[a]
-          perf(`--- AI action: ${a} ${action?.toString() ?? ''}`)
-          state = this.env.step(state, action)
-        })
+    while (!gameHistory.terminal()) {
+      if (gameHistory.state.player === aiPlayer) {
+        const action = mcts.decide(gameHistory, network)
+        gameHistory.apply(action)
       } else {
-        const action = actionRange[Math.floor(actionRange.length * Math.random())]
-        perf(`--- Agent action: ${action?.toString() ?? ''}`)
-        state = this.env.step(state, action)
+        const legalPolicy: number[] = this.legalPolicy(gameHistory.state, new Array(actionRange.length).fill(1))
+        const a = this.randomChoice(legalPolicy)
+        const action = actionRange[a]
+        gameHistory.apply(action)
       }
     }
-    return this.env.reward(state, aiPlayer)
+    perf(`--- Battle arena - AI moves ${aiPlayer === 1 ? 'first' : 'second'}: ${gameHistory.toString()}`)
+    return this.env.reward(gameHistory.state, aiPlayer)
   }
 
   /**

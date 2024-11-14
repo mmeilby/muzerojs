@@ -56,10 +56,15 @@ export class MockedNetwork implements Network {
       const tfPolicies: tf.Tensor[] = []
       const hiddenStates: tf.Tensor[] = []
       state.states?.forEach((gameState, index) => {
+        const gameOver = this.env.terminal(gameState)
         const gameAction = action[index]
         const newState = this.env.step(gameState, gameAction)
         newStates.push(newState)
-        tfValues.push(tf.tensor2d([[this.env.reward(newState, gameState.player)]]))
+        if (!gameOver) {
+          tfValues.push(tf.tensor2d([[this.env.reward(newState, gameState.player)]]))
+        } else {
+          tfValues.push(tf.tensor2d([[0]]))
+        }
         tfPolicies.push(this.env.expertActionPolicy(newState).expandDims(0))
         hiddenStates.push(newState.observation)
       })

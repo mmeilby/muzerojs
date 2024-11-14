@@ -17,6 +17,8 @@ export class Config {
   public numUnrollSteps: number = 5
   // Number of steps in the future to take into account for calculating the target value
   public tdSteps: number
+  // ID of the player that needs the estimated reward flipped when calculating UCB score (default player 1)
+  public mctsValueFlippingPlayer: number = 1
 
   // --------------------------------
   // Self play configuration

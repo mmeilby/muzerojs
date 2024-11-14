@@ -179,29 +179,28 @@ export class NimNet implements Model {
     }
   }
 
-  /*
-  class Conv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, bn=False):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding='same', bias=False)
-        self.bn = None
-        if bn:
-            self.bn = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        h = self.conv(x)
-        if self.bn is not None:
-            h = self.bn(h)
-        return h
-
-  class ResidualBlock(nn.Module):
-      def __init__(self, filters):
-          super().__init__()
-          self.conv = Conv(filters, filters, 3, True)
-
-      def forward(self, x):
-          return F.relu(x + (self.conv(x)))
-
+  /**
+   * Make convolutional layer
+   * @param name
+   * @param input
+   * @param filters
+   * @param kernelSize
+   * @param bn
+   * @private
+   *
+   *   class Conv(nn.Module):
+   *     def __init__(self, in_channels, out_channels, kernel_size, bn=False):
+   *         super().__init__()
+   *         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding='same', bias=False)
+   *         self.bn = None
+   *         if bn:
+   *             self.bn = nn.BatchNorm2d(out_channels)
+   *
+   *     def forward(self, x):
+   *         h = self.conv(x)
+   *         if self.bn is not None:
+   *             h = self.bn(h)
+   *         return h
    */
   private makeConv (name: string, input: tf.SymbolicTensor, filters: number, kernelSize: number, bn: boolean = false): tf.SymbolicTensor {
     const conv = tf.layers.conv2d({
@@ -210,106 +209,125 @@ export class NimNet implements Model {
       filters,
       padding: 'same'
     })
-    const batchNorm = tf.layers.batchNormalization({
-      name: `${name}_bn`
-    })
-    const layer = bn ? batchNorm.apply(conv.apply(input)) : conv.apply(input)
-    return layer as tf.SymbolicTensor
+    if (bn) {
+      const batchNorm = tf.layers.batchNormalization({
+        name: `${name}_bn`
+      })
+      return batchNorm.apply(conv.apply(input)) as tf.SymbolicTensor
+    }
+    return conv.apply(input) as tf.SymbolicTensor
   }
 
-  /*
-  num_filters = 16
-  num_blocks = 4
-
-  class Representation(nn.Module):
-    ''' Conversion from observation to inner abstract state '''
-    def __init__(self, input_shape):
-        super().__init__()
-        self.input_shape = input_shape
-        self.board_size = self.input_shape[1] * self.input_shape[2]
-
-        self.layer0 = Conv(self.input_shape[0], num_filters, 3, bn=True)
-        self.blocks = nn.ModuleList([ResidualBlock(num_filters) for _ in range(num_blocks)])
-
-    def forward(self, x):
-        h = F.relu(self.layer0(x))
-        for block in self.blocks:
-            h = block(h)
-        return h
-
-    def inference(self, x):
-        self.eval()
-        with torch.no_grad():
-            rp = self(torch.from_numpy(x).unsqueeze(0))
-        return rp.cpu().numpy()[0]
-
-  class Prediction(nn.Module):
-    ''' Policy and value prediction from inner abstract state '''
-    def __init__(self, action_shape):
-        super().__init__()
-        self.board_size = np.prod(action_shape[1:])
-        self.action_size = action_shape[0] * self.board_size
-
-        self.conv_p1 = Conv(num_filters, 4, 1, bn=True)
-        self.conv_p2 = Conv(4, 1, 1)
-
-        self.conv_v = Conv(num_filters, 4, 1, bn=True)
-        self.fc_v = nn.Linear(self.board_size * 4, 1, bias=False)
-
-    def forward(self, rp):
-        h_p = F.relu(self.conv_p1(rp))
-        h_p = self.conv_p2(h_p).view(-1, self.action_size)
-
-        h_v = F.relu(self.conv_v(rp))
-        h_v = self.fc_v(h_v.view(-1, self.board_size * 4))
-
-        # range of value is -1 ~ 1
-        return F.softmax(h_p, dim=-1), torch.tanh(h_v)
-
-    def inference(self, rp):
-        self.eval()
-        with torch.no_grad():
-            p, v = self(torch.from_numpy(rp).unsqueeze(0))
-        return p.cpu().numpy()[0], v.cpu().numpy()[0][0]
-
+  /**
+   * Make residual block layer
+   * @param name
+   * @param input
+   * @param filters
+   * @private
+   *
+   *   class ResidualBlock(nn.Module):
+   *       def __init__(self, filters):
+   *           super().__init__()
+   *           self.conv = Conv(filters, filters, 3, True)
+   *
+   *       def forward(self, x):
+   *           return F.relu(x + (self.conv(x)))
    */
+  private makeResidualBlock (name: string, input: tf.SymbolicTensor, filters: number): tf.SymbolicTensor {
+    const resBlock = tf.layers.add({
+      name: `${name}_ad`
+    }).apply([input, this.makeConv(name, input, filters, 3, true)])
+    return tf.layers.activation({
+      name: `${name}_ac`,
+      activation: 'relu'
+    }).apply(resBlock) as tf.SymbolicTensor
+  }
 
+  /**
+   * Make hidden state inference layer
+   * @param name
+   * @param inputShape
+   * @param outputShape
+   * @private
+   *
+   *   num_filters = 16
+   *   num_blocks = 4
+   *
+   *   class Representation(nn.Module):
+   *     ''' Conversion from observation to inner abstract state '''
+   *     def __init__(self, input_shape):
+   *         super().__init__()
+   *         self.input_shape = input_shape
+   *         self.board_size = self.input_shape[1] * self.input_shape[2]
+   *
+   *         self.layer0 = Conv(self.input_shape[0], num_filters, 3, bn=True)
+   *         self.blocks = nn.ModuleList([ResidualBlock(num_filters) for _ in range(num_blocks)])
+   *
+   *     def forward(self, x):
+   *         h = F.relu(self.layer0(x))
+   *         for block in self.blocks:
+   *             h = block(h)
+   *         return h
+   */
   private makeState (name: string, inputShape: number[], outputShape: number[]): tf.LayersModel {
+    const numFilters = outputShape[outputShape.length - 1]
     const input = tf.layers.input({
       name: `${name}_in`,
       shape: inputShape
     })
-    //    const conv = this.makeConv(`${name}_rb0`, input, 16, 3, true)
-    const conv = this.makeConv(`${name}_rb`, input, outputShape[outputShape.length - 1], 3, true)
-    const relu = tf.layers.reLU({
-      name: `${name}_rl0`
+    const conv = this.makeConv(`${name}_rb`, input, numFilters, 3, true)
+    const relu = tf.layers.activation({
+      name: `${name}_rb_ac`,
+      activation: 'relu'
     }).apply(conv) as tf.SymbolicTensor
-    /*
-        const rsb1 = this.makeResidualBlock(`${name}_rb1`, relu, 16)
-        const rsb2 = this.makeResidualBlock(`${name}_rb2`, rsb1, 16)
-        const rsb3 = this.makeResidualBlock(`${name}_rb3`, rsb2, 16)
-        const rsb4 = this.makeResidualBlock(`${name}_rb4`, rsb3, 16)
-        const conv2 = this.makeConv(`${name}_rb5`, rsb4, outputShape[outputShape.length - 1], 3)
-        const relu2 = tf.layers.reLU({
-          name: `${name}_rl5`
-        }).apply(conv2) as tf.SymbolicTensor
-    */
+    const rsb1 = this.makeResidualBlock(`${name}_rb1`, relu, numFilters)
+    const rsb2 = this.makeResidualBlock(`${name}_rb2`, rsb1, numFilters)
+    const rsb3 = this.makeResidualBlock(`${name}_rb3`, rsb2, numFilters)
+    const rsb4 = this.makeResidualBlock(`${name}_rb4`, rsb3, numFilters)
     return tf.model({
       inputs: input,
-      outputs: relu
+      outputs: rsb4
     })
   }
 
+  /**
+   * Make policy inference layer
+   * @param name
+   * @param inputShape
+   * @param outputSize
+   * @private
+   *
+   *   num_filters = 16
+   *
+   *   class Prediction(nn.Module):
+   *     ''' Policy and value prediction from inner abstract state '''
+   *     def __init__(self, action_shape):
+   *         super().__init__()
+   *         self.board_size = np.prod(action_shape[1:])
+   *         self.action_size = action_shape[0] * self.board_size
+   *
+   *         self.conv_p1 = Conv(num_filters, 4, 1, bn=True)
+   *         self.conv_p2 = Conv(4, 1, 1)
+   *
+   *     def forward(self, rp):
+   *         h_p = F.relu(self.conv_p1(rp))
+   *         h_p = self.conv_p2(h_p).view(-1, self.action_size)
+   *
+   *         # range of value is -1 ~ 1
+   *         return F.softmax(h_p, dim=-1)
+   */
   private makePolicy (name: string, inputShape: number[], outputSize: number): tf.LayersModel {
+    const numFilters = inputShape[inputShape.length - 1]
     const input = tf.layers.input({
       name: `${name}_in`,
       shape: inputShape
     })
-    const conv = this.makeConv(`${name}_fi1`, input, 4, 1, true)
-    const relu = tf.layers.reLU({
-      name: `${name}_rl`
+    const conv = this.makeConv(`${name}_fi1`, input, numFilters, 1, true)
+    const relu = tf.layers.activation({
+      name: `${name}_rl`,
+      activation: 'relu'
     }).apply(conv) as tf.SymbolicTensor
-    const conv2 = this.makeConv(`${name}_fi2`, relu, 1, 1)
+    const conv2 = this.makeConv(`${name}_fi2`, relu, 4, 1)
     const flatten = tf.layers.flatten({
       name: `${name}_fl`
     })
@@ -324,14 +342,40 @@ export class NimNet implements Model {
     })
   }
 
+  /**
+   * Make value inference layer
+   * @param name
+   * @param inputShape
+   * @private
+   *
+   *   num_filters = 16
+   *
+   *   class Prediction(nn.Module):
+   *     ''' Policy and value prediction from inner abstract state '''
+   *     def __init__(self, action_shape):
+   *         super().__init__()
+   *         self.board_size = np.prod(action_shape[1:])
+   *
+   *         self.conv_v = Conv(num_filters, 4, 1, bn=True)
+   *         self.fc_v = nn.Linear(self.board_size * 4, 1, bias=False)
+   *
+   *     def forward(self, rp):
+   *         h_v = F.relu(self.conv_v(rp))
+   *         h_v = self.fc_v(h_v.view(-1, self.board_size * 4))
+   *
+   *         # range of value is -1 ~ 1
+   *         return torch.tanh(h_v)
+   */
   private makeValue (name: string, inputShape: number[]): tf.LayersModel {
+    const numFilters = inputShape[inputShape.length - 1]
     const input = tf.layers.input({
       name: `${name}_in`,
       shape: inputShape
     })
-    const conv = this.makeConv(`${name}`, input, 4, 1, true)
-    const relu = tf.layers.reLU({
-      name: `${name}_rl`
+    const conv = this.makeConv(`${name}`, input, numFilters, 1, true)
+    const relu = tf.layers.activation({
+      name: `${name}_rl`,
+      activation: 'relu'
     }).apply(conv) as tf.SymbolicTensor
     const flatten = tf.layers.flatten({
       name: `${name}_fl`

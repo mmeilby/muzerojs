@@ -224,12 +224,14 @@ export class CoreNet implements Network {
   private preparePredictions (sample: Batch[]): Prediction[] {
     const images = tf.concat(sample.map(batch => batch.image))
     const tno = this.initialInference(new NetworkState(images))
-    const predictions: Prediction[] = [{
-      scale: 1,
-      value: tno.tfValue,
-      reward: tno.tfReward,
-      policy: tno.tfPolicy
-    }]
+    const predictions: Prediction[] = [
+      {
+        scale: 1,
+        value: tno.tfValue,
+        reward: tno.tfReward,
+        policy: tno.tfPolicy
+      }
+    ]
     // Transpose the actions to align all batch actions for the same unroll step
     // If actions are missing in a batch, leave the spot undefined
     const actions: Action[][] = []

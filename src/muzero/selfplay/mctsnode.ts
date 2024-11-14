@@ -4,13 +4,17 @@ import { type NetworkState } from '../networks/networkstate'
 import { type State } from '../games/core/state'
 
 export class Node {
-  // The number of times this node has been visited (updated on each back propagation)
+  // The number of times this node has been visited (updated on each back propagation) - N(s,a)
   public visits: number
-  // The back propagated value sum of the node
-  public valueSum: number
-  // The predicted reward received by moving to this node
+  // The back propagated value of the node averaged by the number of visits - part of Q(s,a)
+  public value: number
+  // The predicted reward received by moving to this node - part of Q(s,a)
   public reward: number
-  // The predicted prior probability of choosing the action that leads to this node
+  // The discount between the rewards and the values
+  public discount: number
+  // The predicted value of current state for this node
+  public rawValue: number
+  // The predicted prior probability of choosing the action that leads to this node - P(s,a)
   public prior: number
   // The hidden state this node corresponds to
   public hiddenState: NetworkState | undefined
@@ -26,17 +30,22 @@ export class Node {
     public readonly possibleActions: Action[]
   ) {
     this.visits = 0
-    this.valueSum = 0
+    this.value = 0
     this.reward = 0
+    this.discount = 1
+    this.rawValue = 0
     this.prior = 0
     this.children = []
   }
 
-  /**
-   * The back propagated value averaged by visit of the node
-   */
-  public value (): number {
-    return this.visits > 0 ? this.valueSum / this.visits : 0
+  public qValue (): number {
+    return this.reward + this.discount * this.value
+  }
+
+  public qValues (actionSpace: number): tf.Tensor1D {
+    const indices = tf.tensor1d(this.children.map(child => child.action?.id ?? 0), 'int32')
+    const values = tf.tensor1d(this.children.map(child => child.qValue()), 'float32')
+    return tf.sparseToDense(indices, values, [actionSpace])
   }
 
   public samePlayer (player: number): boolean {
@@ -45,11 +54,32 @@ export class Node {
 
   policy (actionSpace: number): number[] {
     return tf.tidy(() => {
-      const indices = tf.tensor1d(this.children.map(child => child.action?.id ?? 0), 'int32')
-      const values = tf.tensor1d(this.children.map(child => child.visits), 'float32')
-      const policy = tf.sparseToDense(indices, values, [actionSpace])
+      const policy = this.childrenVisits(actionSpace)
       return policy.div(policy.sum()).arraySync() as number[]
     })
+  }
+
+  childrenVisits (actionSpace: number): tf.Tensor1D {
+    const indices = tf.tensor1d(this.children.map(child => child.action?.id ?? 0), 'int32')
+    const values = tf.tensor1d(this.children.map(child => child.visits), 'float32')
+    return tf.sparseToDense(indices, values, [actionSpace])
+  }
+
+  childrenLogits (actionSpace: number): tf.Tensor1D {
+    const valueProbs = this.childrenProbs(actionSpace)
+    // create virtual logits from inverse Softmax approximation
+    const valueLogits = tf.log(tf.where(valueProbs.greater(0), valueProbs.div(valueProbs.max()), 1)) as tf.Tensor1D
+    // rescale logits to range [0; 1]
+    const min: tf.Tensor1D = valueLogits.min()
+    const reduction: tf.Tensor1D = valueLogits.max().sub(min)
+    // rescale and return potential logits
+    return tf.where(valueProbs.greater(0), valueLogits.sub(min).div(reduction), 0) as tf.Tensor1D
+  }
+
+  childrenProbs (actionSpace: number): tf.Tensor1D {
+    const indices = tf.tensor1d(this.children.map(child => child.action?.id ?? 0), 'int32')
+    const values = tf.tensor1d(this.children.map(child => child.prior), 'float32')
+    return tf.sparseToDense(indices, values, [actionSpace])
   }
 
   public addChild (

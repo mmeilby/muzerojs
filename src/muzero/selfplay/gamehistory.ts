@@ -47,8 +47,8 @@ export class GameHistory {
     this.childVisits = []
     this.rootValues = []
     this.priorities = []
-    const conf = 0 // TODO: Define the priority
-    this.gamePriority = this.config.prioritizedReplay ? conf : 1
+    // Preset game priority - recalculate when game history is saved to replay buffer
+    this.gamePriority = 1
   }
 
   private _state: State
@@ -80,6 +80,18 @@ export class GameHistory {
     return psum > 0 ? legalPolicy.map(v => v / psum) : legalPolicy
   }
 
+  /**
+   * Apply the best action to the environment
+   * For each game step the following trajectory is updated:
+   *    observationHistory: H(t) - the board state before the action is applied
+   *    rewards: R(t+1) - the reward earned from the action in perspective of the player to move
+   *    actionHistory: a(t) - the action to apply
+   *    toPlayHistory: p(t) - the player to apply the action
+   *    childVisits: π(t) - the policy before the action is applied
+   *    rootValues: Q(t) - the estimated value of the state before the action is applied
+   *    state: s(t) - the next state after applying the action
+   * @param action
+   */
   public apply (action: Action): State {
     const state = this.environment.step(this._state, action)
     this.observationHistory.push(state.observation)
@@ -92,10 +104,15 @@ export class GameHistory {
 
   public storeSearchStatistics (rootNode: RootNode): void {
     this.childVisits.push(rootNode.policy(this.config.actionSpace))
-    const value = rootNode.value()
+    const value = rootNode.value
     this.rootValues.push(value)
-    const prio = 0 // TODO: Define the priority
-    this.priorities.push(this.config.prioritizedReplay ? prio : 1)
+    // Preset priority - recalculate when game history is saved to replay buffer
+    this.priorities.push(1)
+  }
+
+  public updateSearchStatistics (gameHistoryCopy: GameHistory): void {
+    this.childVisits.splice(0, this.childVisits.length, ...gameHistoryCopy.childVisits)
+    this.rootValues.splice(0, this.rootValues.length, ...gameHistoryCopy.rootValues)
   }
 
   public makeImage (stateIndex: number): tf.Tensor {
@@ -151,7 +168,7 @@ export class GameHistory {
     const targets: Target[] = []
     // targets = []
     // const to_play = this._state.player TODO: Why is this relevant as a parameter for make_target in pseudocode? It seems to be the current player for the game history.
-    for (let currentIndex = stateIndex; currentIndex < stateIndex + numUnrollSteps; currentIndex++) {
+    for (let currentIndex = stateIndex; currentIndex < stateIndex + numUnrollSteps + 1; currentIndex++) {
       // # For simplicity the network always predicts the most recently received
       // # reward, even for the initial representation network where we already
       // # know this reward.
@@ -230,7 +247,7 @@ export class GameHistory {
   }
 
   public toString (): string {
-    return this.environment.toString(this._state)
+    return this._state.toString()
   }
 
   public deserialize (stream: string): GameHistory[] {

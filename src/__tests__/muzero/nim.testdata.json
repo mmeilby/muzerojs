@@ -1,0 +1,140 @@
+{
+  "moves": [
+    {
+      "move": {
+        "key": "ROOT",
+        "state": "12345",
+        "player": "1",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L1",
+        "state": "02345",
+        "player": "2",
+        "value": 1
+      }
+    },
+    {
+      "move": {
+        "key": "L1.1",
+        "state": "01345",
+        "player": "1",
+        "value": 1
+      }
+    },
+    {
+      "move": {
+        "key": "L2",
+        "state": "11345",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L3",
+        "state": "10345",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L4",
+        "state": "12245",
+        "player": "2",
+        "value": 1
+      }
+    },
+    {
+      "move": {
+        "key": "L5",
+        "state": "12145",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L6",
+        "state": "12045",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L7",
+        "state": "12335",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L8",
+        "state": "12325",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L9",
+        "state": "12315",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L10",
+        "state": "12305",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L11",
+        "state": "12344",
+        "player": "2",
+        "value": 1
+      }
+    },
+    {
+      "move": {
+        "key": "L12",
+        "state": "12343",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L13",
+        "state": "12342",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L14",
+        "state": "12341",
+        "player": "2",
+        "value": 0
+      }
+    },
+    {
+      "move": {
+        "key": "L15",
+        "state": "12340",
+        "player": "2",
+        "value": 0
+      }
+    }
+  ]
+}
