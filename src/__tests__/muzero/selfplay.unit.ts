@@ -102,7 +102,7 @@ describe('Muzero Self Play Unit Test:', () => {
   const network = new MockedNetwork(factory)
   const sharedStorage = new SharedStorage(conf, network)
   const selfPlay = new SelfPlay(conf, factory)
-  test('Node functionality', () => {
+  test('Check Node functionality', () => {
     const visits = [0, 125, 250, 125, 0, 75, 350, 75, 0]
     const target = visits.concat(new Array(conf.actionSpace - visits.length).fill(0))
     const totalVisits = visits.reduce((s, v) => s + v, 0)
@@ -213,7 +213,7 @@ describe('Muzero Self Play Unit Test:', () => {
       }
     }
     expect(sucess).toEqual(10)
-  }, 20000)
+  })
   test('Check Monte Carlo Tree Search 2', async () => {
     const util = new MuZeroNimUtil()
     const selfPlayTest = new SelfPlayTest(conf, factory)
@@ -245,13 +245,15 @@ describe('Muzero Self Play Unit Test:', () => {
       }
     }
     expect(sucess).toEqual(10)
-  }, 10000)
+  })
   test('Check Monte Carlo Tree Search SELF PLAY', async () => {
     const selfPlayTest = new SelfPlayTest(conf, factory)
     const gameHistory = new GameHistory(factory, conf)
     for (let i = 0; i < 20; i++) {
       const root = selfPlayTest.testRunMCTS(gameHistory, network)
-      const topAction = i === 0 ? selfPlayTest.testGumbelRootActionSelection(root) : selfPlayTest.testGumbelInteriorSelectAction(root)
+      const topAction = gameHistory.historyLength() === 0
+        ? selfPlayTest.testGumbelRootActionSelection(root)
+        : selfPlayTest.testGumbelInteriorSelectAction(root)
       debug(`Best move: ${i}: ${gameHistory.state.toString()}`)
       debug(`Policy: ${root.policy(conf.actionSpace).map(p => p.toFixed(2)).join(', ')}`)
       debug(`Expert advise: A=${factory.expertActionPolicy(gameHistory.state).toString()}`)
@@ -262,13 +264,24 @@ describe('Muzero Self Play Unit Test:', () => {
         break
       }
     }
-  }, 10000)
+  })
+  test('Check prioritized replay buffer', async () => {
+    conf.prioritizedReplay = true
+    conf.priorityAlpha = 1.0
+    const replayBuffer = new ReplayBuffer(conf)
+    await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
+    debug(replayBuffer.lastGame?.priorities)
+    expect(replayBuffer.lastGame?.gamePriority.toFixed(3)).toEqual('1.256')
+  })
   test('Check self play FULL TEST', async () => {
+    conf.replayBufferSize = 3
     const replayBuffer = new ReplayBuffer(conf)
     for (let i = 1; i <= 5; i++) {
       await selfPlay.runSelfPlay(sharedStorage, replayBuffer)
     }
-    expect(replayBuffer.numPlayedGames).toEqual(5)
+    // Expect at least 3 games to be played to fill up the replay buffer
+    // The last two iterations may be used for reanalyse of existing games
+    expect(replayBuffer.numPlayedGames).toBeGreaterThan(2)
     expect(replayBuffer.performance()).toEqual(100)
   }, 10000)
 })

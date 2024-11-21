@@ -25,6 +25,8 @@ export class Config {
 
   // Number of future moves self-simulated in MCTS
   public simulations: number = 100
+  // Balance between new generated game plays and reanalysed existing games
+  public reanalyseFactor: number = 0.25
   // Maximum number of moves if game is not finished before
   public maxMoves: number
   // Number of previous observations and previous actions to add to the current observation

@@ -37,17 +37,20 @@ export class SelfPlay {
    * writing it to a shared replay buffer.
    * @param storage
    * @param replayBuffer
-   * @param reanalyseFactor
    */
-  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer, reanalyseFactor: number = 1.0): Promise<void> {
+  public async runSelfPlay (storage: SharedStorage, replayBuffer: ReplayBuffer): Promise<void> {
     info('Self play initiated')
-    // Produce game plays as long as the training module runs
+    // Produce game plays or reanalyse existing game plays as long as the training module runs
     do {
       const network = storage.latestNetwork()
-      if (Math.random() >= reanalyseFactor) {
-        for (const gameHistory of replayBuffer.games) {
+      // Only reanalyse if replay buffer is full
+      if (replayBuffer.totalGames === this.config.replayBufferSize && Math.random() >= this.config.reanalyseFactor) {
+        const gameHistory = replayBuffer.games.at(storage.networkCount % replayBuffer.totalGames)
+        if (gameHistory !== undefined) {
           const gameHistoryCopy = this.reanalyse(network, gameHistory)
           gameHistory.updateSearchStatistics(gameHistoryCopy)
+          // Clean up intermediate tensors used for reanalyse
+          gameHistoryCopy.dispose()
           // If game priorities are used then reset for new root values
           replayBuffer.setGamePriority(gameHistory)
         }
@@ -57,9 +60,8 @@ export class SelfPlay {
         log(`Done playing a game with myself - collected ${replayBuffer.numPlayedGames} (${replayBuffer.totalSamples}) samples`)
         log('Played: %s', game.state.toString())
       }
-      //      if (!(preload && replayBuffer.totalGames < this.config.replayBufferSize)) {
+      // Allow training agent to continue in next time frame
       await tf.nextFrame()
-      //      }
     } while (storage.networkCount < this.config.trainingSteps)
     info('Self play completed')
   }

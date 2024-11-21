@@ -121,8 +121,10 @@ export class CoreNet implements Network {
       })
     } else {
       const optimizer = tf.train.rmsprop(this.config.lrInit, this.config.lrDecayRate, this.config.momentum)
-      // const cost = optimizer.minimize(() => this.calculateLoss(samples, lossLog), true, this.model.getHiddenStateWeights())
-      optimizer.minimize(() => this.calculateLoss(replayBuffer, lossLog))
+      const cost = optimizer.minimize(() => this.calculateLoss(replayBuffer, lossLog), true)
+      if (cost !== null) {
+        cost.dispose()
+      }
       optimizer.dispose()
     }
     return lossLog

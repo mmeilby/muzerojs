@@ -196,23 +196,25 @@ export class Validate {
    * @param aiPlayer
    */
   public battle (network: Network, aiPlayer: number): number {
-    const actionRange = this.env.actionRange()
-    const gameHistory = new GameHistory(this.env, this.config)
-    const mcts = new SelfPlay(this.config, this.env)
-    // Play a game from start to end, register target data on the fly for the game history
-    while (!gameHistory.terminal()) {
-      if (gameHistory.state.player === aiPlayer) {
-        const action = mcts.decide(gameHistory, network)
-        gameHistory.apply(action)
-      } else {
-        const legalPolicy: number[] = this.legalPolicy(gameHistory.state, new Array(actionRange.length).fill(1))
-        const a = this.randomChoice(legalPolicy)
-        const action = actionRange[a]
-        gameHistory.apply(action)
+    return tf.tidy(() => {
+      const actionRange = this.env.actionRange()
+      const gameHistory = new GameHistory(this.env, this.config)
+      const mcts = new SelfPlay(this.config, this.env)
+      // Play a game from start to end, register target data on the fly for the game history
+      while (!gameHistory.terminal()) {
+        if (gameHistory.state.player === aiPlayer) {
+          const action = mcts.decide(gameHistory, network)
+          gameHistory.apply(action)
+        } else {
+          const legalPolicy: number[] = this.legalPolicy(gameHistory.state, new Array(actionRange.length).fill(1))
+          const a = this.randomChoice(legalPolicy)
+          const action = actionRange[a]
+          gameHistory.apply(action)
+        }
       }
-    }
-    perf(`--- Battle arena - AI moves ${aiPlayer === 1 ? 'first' : 'second'}: ${gameHistory.toString()}`)
-    return this.env.reward(gameHistory.state, aiPlayer)
+      perf(`--- Battle arena - AI moves ${aiPlayer === 1 ? 'first' : 'second'}: ${gameHistory.toString()}`)
+      return this.env.reward(gameHistory.state, aiPlayer)
+    })
   }
 
   /**
