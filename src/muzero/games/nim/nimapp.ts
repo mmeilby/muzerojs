@@ -1,6 +1,8 @@
 import { MuZeroNim } from './nim'
 import { Muzero } from '../../../muzero'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
+console.log(tf.getBackend())
 const factory = new MuZeroNim()
 const conf = factory.config()
 conf.trainingSteps = 10000
