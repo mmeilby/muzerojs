@@ -69,6 +69,8 @@ export class Training {
       const performance = replayBuffer.performance()
       // Log the performance measured by number of wins by player 1 in 100 games (based on the games from the replay buffer)
       this.summary.scalar('perf', performance, this.trainingStep)
+      const redundance = replayBuffer.redundance()
+      this.summary.scalar('redun', redundance, this.trainingStep)
       // Log the current use of tensors. The expected use should include the tensors saved as game history in replay buffer
       this.summary.scalar('use', tf.memory().numTensors, this.trainingStep)
       tf.tidy(() => {

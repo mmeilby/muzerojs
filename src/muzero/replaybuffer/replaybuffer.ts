@@ -169,6 +169,23 @@ export class ReplayBuffer {
     return performanceTotal / this.buffer.length * 100
   }
 
+  public redundance (): number {
+    const redundanceMap = new Map<string, number>()
+    this.buffer.forEach((g: GameHistory): void => {
+      const key = g.actionHistory.join(':')
+      const count = redundanceMap.get(key)
+      if (count !== undefined) {
+        redundanceMap.set(key, count + 1)
+      } else {
+        redundanceMap.set(key, 1)
+      }
+    })
+    return tf.tidy(() => {
+      const dist = tf.tensor1d([...redundanceMap.values()])
+      return dist.mean().bufferSync().get(0)
+    })
+  }
+
   /**
    * sampleGame - Sample game from buffer either uniformly or according to some priority.
    * See paper appendix Training.

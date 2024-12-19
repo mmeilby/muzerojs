@@ -3,11 +3,11 @@ import { Muzero } from '../../../muzero'
 
 const factory = new MuZeroNim()
 const conf = factory.config()
-conf.trainingSteps = 5000
+conf.trainingSteps = 10000
 conf.simulations = 10
-conf.batchSize = 128
-conf.replayBufferSize = 1024
-conf.checkpointInterval = 100
+conf.batchSize = 512
+conf.replayBufferSize = 10000
+conf.checkpointInterval = 250
 conf.lrInit = 0.0005
 conf.prioritizedReplay = true
 conf.priorityAlpha = 1.0
