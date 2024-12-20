@@ -7,6 +7,7 @@ import type { Environment } from './muzero/games/core/environment'
 import { type Config } from './muzero/games/core/config'
 import fs from 'fs'
 import debugFactory from 'debug'
+import * as tf from '@tensorflow/tfjs-node-gpu'
 
 const output = debugFactory('muzero:muzero:output')
 // Enable general output like titles, warnings, and errors (along with environmental DEBUG settings)
@@ -15,6 +16,8 @@ debugFactory.enable('muzero:muzero:output,'.concat(process.env.DEBUG ?? ''))
 export class Muzero {
   public trainingSession (factory: Environment, conf: Config): void {
     output(`Running training session for MuZero acting on ${conf.savedNetworkPath} environment`)
+    output(`Tensorflow backend: ${tf.getBackend()}`)
+    output(`Backends: ${tf.engine().backendNames().join(',')}`)
     let lastStep = 0
     try {
       const json = fs.readFileSync(`data/${conf.savedNetworkPath}/muzero.json`, { encoding: 'utf8' })
@@ -75,6 +78,8 @@ export class Muzero {
   }
 
   public printModels (conf: Config): void {
+    output(`Nuværende backend: ${tf.getBackend()}`)
+    output(`Backends: ${tf.engine().backendNames().join(',')}`)
     if (conf.modelGenerator !== undefined) {
       const model = conf.modelGenerator()
       model.print()

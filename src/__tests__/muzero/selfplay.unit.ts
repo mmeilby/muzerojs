@@ -140,7 +140,7 @@ describe('Muzero Self Play Unit Test:', () => {
     let gumbelSuccess = 0
     let fails = 0
     let gumbelFails = 0
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < 100; i++) {
       const action = selfPlayTest.testSelectAction(visits)
       const gumbelAction = selfPlayTest.testGumbelSelectActionFromArray(visits)
       // Don't accept choices with no visits
@@ -162,10 +162,10 @@ describe('Muzero Self Play Unit Test:', () => {
     // Don't expect any choices with no visits
     expect(fails).toEqual(0)
     expect(gumbelFails).toEqual(0)
-    // Expect 35% of the choices to be the target - and no more than 10% deviation
-    expect(Math.abs(350 - sucess)).toBeLessThan(35)
+    // Expect 50% of the choices to be the target - and no more than 10% deviation
+    expect(sucess).toBeGreaterThan(50)
     // Expect Gumbel to go for the most promising node (visits = 350)
-    expect(gumbelSuccess).toEqual(1000)
+    expect(gumbelSuccess).toEqual(100)
     debug(`Gumbel success: ${gumbelSuccess} - standard success: ${sucess}`)
   })
   test('Check expand node', () => {

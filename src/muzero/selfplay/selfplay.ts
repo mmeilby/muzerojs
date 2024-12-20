@@ -146,13 +146,21 @@ export class SelfPlay {
   protected selectAction (rootNode: RootNode): Action {
     let action = 0
     if (rootNode.children.length > 1) {
-      tf.tidy(() => {
-        // define the probability for each action based on popularity (visits)
-        const probs = tf.tensor1d(rootNode.children.map(child => child.visits)).log()
-        // select the most popular action - note that for some reason we need to ask for
-        // two samples as the first one always is fixed
-        action = tf.multinomial(probs, 2).bufferSync().get(1)
-      })
+      const visits = rootNode.children.map(child => child.visits)
+      const results = new Array(visits.length).fill(0)
+      const sum = visits.reduce((sum, visit) => sum + visit)
+      for (let t = 0; t < 10; t++) {
+        const random = Math.random() * sum
+        let cumulative = 0
+        for (let i = 0; i < visits.length; i++) {
+          cumulative += visits[i]
+          if (random < cumulative) {
+            results[i]++
+            break
+          }
+        }
+      }
+      action = this.maxArg(results)
     }
     return rootNode.children[action].action
   }
@@ -335,11 +343,20 @@ export class SelfPlay {
     const minMaxStats = new Normalizer(this.config.normMin, this.config.normMax)
     const initQValue = this.calculateInitQValue(node, minMaxStats)
     const ucbTable = node.children.map(child => this.ucbScore(node.visits, child, minMaxStats, initQValue))
-    const bestNode = tf.tidy(() => {
-      const puct = tf.tensor1d(ucbTable)
-      return puct.argMax().bufferSync().get(0)
-    })
+    const bestNode = this.maxArg(ucbTable)
     return node.children[bestNode]
+  }
+
+  private maxArg (array: number[]): number {
+    let maxIndex = 0
+    let maxValue = array[0]
+    for (let i = 1; i < array.length; i++) {
+      if (array[i] > maxValue) {
+        maxIndex = i
+        maxValue = array[i]
+      }
+    }
+    return maxIndex
   }
 
   /**
